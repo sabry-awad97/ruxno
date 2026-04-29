@@ -277,6 +277,7 @@ where
                     let io = TokioIo::new(stream);
                     let service = service.clone();
                     let max_body_size = self.config.max_body_size();
+                    let request_timeout = self.config.request_timeout();
 
                     // Spawn a task to handle this connection
                     tokio::spawn(async move {
@@ -285,10 +286,23 @@ where
                             async move { service.handle(req, max_body_size).await }
                         });
 
-                        if let Err(e) = http1::Builder::new()
-                            .serve_connection(io, service_fn)
-                            .await
-                        {
+                        let connection = http1::Builder::new()
+                            .serve_connection(io, service_fn);
+
+                        // Wrap connection handling with timeout if configured
+                        let result = if let Some(timeout) = request_timeout {
+                            match tokio::time::timeout(timeout, connection).await {
+                                Ok(result) => result,
+                                Err(_) => {
+                                    eprintln!("⏱️  Request timeout from {} after {:?}", peer_addr, timeout);
+                                    return;
+                                }
+                            }
+                        } else {
+                            connection.await
+                        };
+
+                        if let Err(e) = result {
                             eprintln!("Connection error from {}: {}", peer_addr, e);
                         }
                     });
