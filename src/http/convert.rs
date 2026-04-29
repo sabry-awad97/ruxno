@@ -202,10 +202,22 @@ pub fn to_hyper_response(res: Response) -> hyper::Response<http_body_util::Full<
     }
 }
 
-/// Parse query parameters from URI query string
+/// Parse query parameters from URI query string with validation
 ///
-/// Parses the query string into a HashMap of key-value pairs.
-/// Handles URL decoding and multiple values (last value wins).
+/// Parses the query string into a HashMap of key-value pairs with security validations:
+/// - Limits key length to 256 bytes
+/// - Limits value length to 4096 bytes
+/// - Rejects null bytes (path traversal prevention)
+/// - Detects suspicious path traversal patterns (../, ..\\)
+/// - Handles URL decoding and multiple values (last value wins)
+///
+/// # Security
+///
+/// This function implements multiple layers of defense against injection attacks:
+/// - **Length limits**: Prevents memory exhaustion and buffer overflow attacks
+/// - **Null byte detection**: Prevents path traversal and string termination attacks
+/// - **Path traversal detection**: Blocks directory traversal attempts (../, ..\\)
+/// - **URL decoding**: Properly handles encoded characters to prevent bypass attempts
 ///
 /// # Arguments
 ///
@@ -213,15 +225,23 @@ pub fn to_hyper_response(res: Response) -> hyper::Response<http_body_util::Full<
 ///
 /// # Returns
 ///
-/// Returns a HashMap of parsed query parameters.
+/// Returns a HashMap of parsed and validated query parameters.
+/// Invalid parameters are silently dropped to prevent DoS via validation errors.
 ///
 /// # Examples
 ///
 /// ```rust,ignore
 /// let query = parse_query_params(Some("page=1&limit=10"));
 /// assert_eq!(query.get("page"), Some(&"1".to_string()));
+///
+/// // Malicious input is rejected
+/// let query = parse_query_params(Some("path=../../etc/passwd"));
+/// assert!(query.is_empty()); // Path traversal detected and dropped
 /// ```
 fn parse_query_params(query: Option<&str>) -> HashMap<String, String> {
+    const MAX_KEY_LENGTH: usize = 256;
+    const MAX_VALUE_LENGTH: usize = 4096;
+
     query
         .map(|q| {
             q.split('&')
@@ -234,11 +254,87 @@ fn parse_query_params(query: Option<&str>) -> HashMap<String, String> {
                     let key = urlencoding::decode(key).ok()?.into_owned();
                     let value = urlencoding::decode(value).ok()?.into_owned();
 
+                    // Validate key and value
+                    if !is_valid_query_param(&key, &value) {
+                        return None; // Drop invalid parameters
+                    }
+
                     Some((key, value))
                 })
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Validate query parameter key and value for security
+///
+/// Checks for:
+/// - Length limits (key: 256 bytes, value: 4096 bytes)
+/// - Null bytes (path traversal prevention)
+/// - Path traversal patterns (../, ..\\)
+///
+/// # Arguments
+///
+/// * `key` - Parameter key to validate
+/// * `value` - Parameter value to validate
+///
+/// # Returns
+///
+/// Returns `true` if the parameter is safe, `false` otherwise.
+fn is_valid_query_param(key: &str, value: &str) -> bool {
+    const MAX_KEY_LENGTH: usize = 256;
+    const MAX_VALUE_LENGTH: usize = 4096;
+
+    // Check length limits
+    if key.len() > MAX_KEY_LENGTH || value.len() > MAX_VALUE_LENGTH {
+        return false;
+    }
+
+    // Check for null bytes (path traversal prevention)
+    if key.contains('\0') || value.contains('\0') {
+        return false;
+    }
+
+    // Check for path traversal patterns
+    if contains_path_traversal(value) {
+        return false;
+    }
+
+    true
+}
+
+/// Detect path traversal patterns in a string
+///
+/// Checks for common path traversal patterns:
+/// - `../` (Unix-style)
+/// - `..\` (Windows-style)
+/// - URL-encoded variants (%2e%2e%2f, %2e%2e%5c)
+///
+/// # Arguments
+///
+/// * `s` - String to check for path traversal patterns
+///
+/// # Returns
+///
+/// Returns `true` if path traversal patterns are detected, `false` otherwise.
+fn contains_path_traversal(s: &str) -> bool {
+    // Check for literal patterns
+    if s.contains("../") || s.contains("..\\") {
+        return true;
+    }
+
+    // Check for URL-encoded patterns (case-insensitive)
+    let lower = s.to_lowercase();
+    if lower.contains("%2e%2e%2f") || lower.contains("%2e%2e%5c") {
+        return true;
+    }
+
+    // Check for mixed encoding (. followed by encoded /)
+    if lower.contains("..%2f") || lower.contains("..%5c") {
+        return true;
+    }
+
+    false
 }
 
 #[cfg(test)]
@@ -286,6 +382,172 @@ mod tests {
         // Last value wins
         let query = parse_query_params(Some("page=1&page=2"));
         assert_eq!(query.get("page"), Some(&"2".to_string()));
+    }
+
+    #[test]
+    fn test_parse_query_params_key_length_limit() {
+        // Key exceeds 256 bytes - should be dropped
+        let long_key = "a".repeat(257);
+        let query_str = format!("{}=value", long_key);
+        let query = parse_query_params(Some(&query_str));
+        assert!(query.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_params_key_at_limit() {
+        // Key exactly 256 bytes - should be accepted
+        let key = "a".repeat(256);
+        let query_str = format!("{}=value", key);
+        let query = parse_query_params(Some(&query_str));
+        assert_eq!(query.len(), 1);
+        assert_eq!(query.get(&key), Some(&"value".to_string()));
+    }
+
+    #[test]
+    fn test_parse_query_params_value_length_limit() {
+        // Value exceeds 4096 bytes - should be dropped
+        let long_value = "x".repeat(4097);
+        let query_str = format!("key={}", long_value);
+        let query = parse_query_params(Some(&query_str));
+        assert!(query.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_params_value_at_limit() {
+        // Value exactly 4096 bytes - should be accepted
+        let value = "x".repeat(4096);
+        let query_str = format!("key={}", value);
+        let query = parse_query_params(Some(&query_str));
+        assert_eq!(query.len(), 1);
+        assert_eq!(query.get("key"), Some(&value));
+    }
+
+    #[test]
+    fn test_parse_query_params_null_byte_in_key() {
+        // Null byte in key - should be dropped
+        let query = parse_query_params(Some("key\0=value"));
+        assert!(query.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_params_null_byte_in_value() {
+        // Null byte in value - should be dropped
+        let query = parse_query_params(Some("key=value\0"));
+        assert!(query.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_params_path_traversal_unix() {
+        // Unix-style path traversal - should be dropped
+        let query = parse_query_params(Some("path=../../etc/passwd"));
+        assert!(query.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_params_path_traversal_windows() {
+        // Windows-style path traversal - should be dropped
+        let query = parse_query_params(Some("path=..\\..\\windows\\system32"));
+        assert!(query.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_params_path_traversal_encoded() {
+        // URL-encoded path traversal - should be dropped
+        let query = parse_query_params(Some("path=%2e%2e%2fetc%2fpasswd"));
+        assert!(query.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_params_path_traversal_mixed_encoding() {
+        // Mixed encoding path traversal - should be dropped
+        let query = parse_query_params(Some("path=..%2fetc%2fpasswd"));
+        assert!(query.is_empty());
+    }
+
+    #[test]
+    fn test_parse_query_params_safe_dots() {
+        // Safe use of dots (not path traversal) - should be accepted
+        let query = parse_query_params(Some("file=document.pdf"));
+        assert_eq!(query.get("file"), Some(&"document.pdf".to_string()));
+    }
+
+    #[test]
+    fn test_parse_query_params_safe_path() {
+        // Safe path without traversal - should be accepted
+        let query = parse_query_params(Some("path=/api/users/123"));
+        assert_eq!(query.get("path"), Some(&"/api/users/123".to_string()));
+    }
+
+    #[test]
+    fn test_parse_query_params_multiple_with_invalid() {
+        // Mix of valid and invalid parameters - only valid ones kept
+        let query = parse_query_params(Some("valid=ok&bad=../../etc&good=yes"));
+        assert_eq!(query.len(), 2);
+        assert_eq!(query.get("valid"), Some(&"ok".to_string()));
+        assert_eq!(query.get("good"), Some(&"yes".to_string()));
+        assert!(!query.contains_key("bad"));
+    }
+
+    #[test]
+    fn test_parse_query_params_empty_value_valid() {
+        // Empty value is valid
+        let query = parse_query_params(Some("flag="));
+        assert_eq!(query.get("flag"), Some(&"".to_string()));
+    }
+
+    #[test]
+    fn test_contains_path_traversal_unix() {
+        assert!(contains_path_traversal("../etc/passwd"));
+        assert!(contains_path_traversal("../../etc/passwd"));
+        assert!(contains_path_traversal("/var/log/../etc/passwd"));
+    }
+
+    #[test]
+    fn test_contains_path_traversal_windows() {
+        assert!(contains_path_traversal("..\\windows\\system32"));
+        assert!(contains_path_traversal("..\\..\\windows"));
+        assert!(contains_path_traversal("C:\\Users\\..\\Admin"));
+    }
+
+    #[test]
+    fn test_contains_path_traversal_encoded() {
+        assert!(contains_path_traversal("%2e%2e%2fetc"));
+        assert!(contains_path_traversal("%2E%2E%2Fetc")); // Case insensitive
+        assert!(contains_path_traversal("%2e%2e%5cwindows"));
+    }
+
+    #[test]
+    fn test_contains_path_traversal_mixed() {
+        assert!(contains_path_traversal("..%2fetc"));
+        assert!(contains_path_traversal("..%5cwindows"));
+    }
+
+    #[test]
+    fn test_contains_path_traversal_safe() {
+        assert!(!contains_path_traversal("document.pdf"));
+        assert!(!contains_path_traversal("/api/users/123"));
+        assert!(!contains_path_traversal("file.tar.gz"));
+        assert!(!contains_path_traversal("version-1.2.3"));
+    }
+
+    #[test]
+    fn test_is_valid_query_param_all_checks() {
+        // Valid parameter
+        assert!(is_valid_query_param("page", "1"));
+        assert!(is_valid_query_param("name", "John Doe"));
+
+        // Key too long
+        assert!(!is_valid_query_param(&"a".repeat(257), "value"));
+
+        // Value too long
+        assert!(!is_valid_query_param("key", &"x".repeat(4097)));
+
+        // Null bytes
+        assert!(!is_valid_query_param("key\0", "value"));
+        assert!(!is_valid_query_param("key", "value\0"));
+
+        // Path traversal
+        assert!(!is_valid_query_param("path", "../../etc/passwd"));
     }
 
     #[tokio::test]
