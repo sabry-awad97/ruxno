@@ -18,38 +18,7 @@ use ruxno_middleware::{
 async fn main() {
     let mut app = App::new();
 
-    // Health check middleware - responds to /health with custom checks
-    let health_config = HealthCheckConfig::new()
-        .with_path("/health")
-        .with_check("database", async || {
-            // Simulate database check
-            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-            HealthCheckResult::healthy_with_message("Database connection OK")
-        })
-        .with_check("cache", async || {
-            // Simulate cache check
-            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
-            HealthCheckResult::healthy_with_message("Cache connection OK")
-        })
-        .with_check("external_api", async || {
-            // Simulate external API check (sometimes degraded)
-            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-            if rand::random::<f32>() > 0.8 {
-                HealthCheckResult::degraded("External API responding slowly")
-            } else {
-                HealthCheckResult::healthy_with_message("External API OK")
-            }
-        });
-
-    app.r#use(health_check_with_config(health_config));
-
-    // CORS middleware - allow cross-origin requests (development mode)
-    app.r#use(cors());
-
-    // Pretty JSON middleware - formats all JSON responses
-    app.r#use(pretty_json());
-
-    // Global middleware - applies to all routes
+    // Global logging middleware - applies to ALL requests (including health checks)
     app.r#use(async |ctx: Context, next: Next| {
         println!(
             "🔍 Request: {} {}",
@@ -60,6 +29,12 @@ async fn main() {
         println!("✅ Response: {}", response.status());
         Ok(response)
     });
+
+    // CORS middleware - allow cross-origin requests (development mode)
+    app.r#use(cors());
+
+    // Pretty JSON middleware - formats all JSON responses
+    app.r#use(pretty_json());
 
     // Path-specific middleware - applies only to /api/* routes
     app.on(Method::GET, "/api/*", async |ctx: Context, next: Next| {
@@ -175,6 +150,37 @@ async fn main() {
             }
         })))
     });
+
+    // Health check middleware - responds to /health with custom checks
+    let health_config = HealthCheckConfig::new()
+        .with_path("/health")
+        .with_check("database", |ctx| async move {
+            // Access environment from context if needed
+            let _env = ctx.env();
+            // Simulate database check
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            HealthCheckResult::healthy_with_message("Database connection OK")
+        })
+        .with_check("cache", |ctx| async move {
+            // Access environment from context if needed
+            let _env = ctx.env();
+            // Simulate cache check
+            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+            HealthCheckResult::healthy_with_message("Cache connection OK")
+        })
+        .with_check("external_api", |ctx| async move {
+            // Access environment from context if needed
+            let _env = ctx.env();
+            // Simulate external API check (sometimes degraded)
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            if rand::random::<f32>() > 0.8 {
+                HealthCheckResult::degraded("External API responding slowly")
+            } else {
+                HealthCheckResult::healthy_with_message("External API OK")
+            }
+        });
+
+    app.r#use(health_check_with_config(health_config));
 
     util::print_server_info();
 

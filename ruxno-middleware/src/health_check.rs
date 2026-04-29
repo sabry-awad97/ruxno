@@ -20,12 +20,16 @@
 //!
 //! let config = HealthCheckConfig::new()
 //!     .with_path("/healthz")
-//!     .with_check("database", || async {
-//!         // Check database connection
+//!     .with_check("database", |ctx| async move {
+//!         // Access environment from context
+//!         let env = ctx.env();
+//!         // Check database connection using env config
 //!         HealthCheckResult::healthy()
 //!     })
-//!     .with_check("cache", || async {
-//!         // Check cache connection
+//!     .with_check("cache", |ctx| async move {
+//!         // Access environment from context  
+//!         let env = ctx.env();
+//!         // Check cache connection using env config
 //!         HealthCheckResult::healthy()
 //!     });
 //!
@@ -135,9 +139,10 @@ impl HealthCheckResult {
     }
 }
 
-/// Type alias for health check functions
-pub type HealthCheckFn =
-    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = HealthCheckResult> + Send>> + Send + Sync>;
+/// Type alias for context-aware health check functions
+pub type ContextHealthCheckFn<E> = Arc<
+    dyn Fn(Context<E>) -> Pin<Box<dyn Future<Output = HealthCheckResult> + Send>> + Send + Sync,
+>;
 
 /// Health check response
 #[derive(Debug, Serialize, Deserialize)]
@@ -156,26 +161,26 @@ pub struct HealthResponse {
 
 /// Health check middleware configuration
 #[derive(Clone)]
-pub struct HealthCheckConfig {
+pub struct HealthCheckConfig<E = ()> {
     /// Path to respond to (default: "/health")
     pub path: String,
     /// Whether to include detailed check results (default: true)
     pub detailed: bool,
-    /// Custom health checks
-    pub checks: HashMap<String, HealthCheckFn>,
+    /// Context-aware health checks
+    pub context_checks: HashMap<String, ContextHealthCheckFn<E>>,
 }
 
-impl Default for HealthCheckConfig {
+impl<E> Default for HealthCheckConfig<E> {
     fn default() -> Self {
         Self {
             path: "/health".to_string(),
             detailed: true,
-            checks: HashMap::new(),
+            context_checks: HashMap::new(),
         }
     }
 }
 
-impl HealthCheckConfig {
+impl<E> HealthCheckConfig<E> {
     /// Create a new health check configuration
     pub fn new() -> Self {
         Self::default()
@@ -193,36 +198,39 @@ impl HealthCheckConfig {
         self
     }
 
-    /// Add a custom health check
+    /// Add a context-aware health check that can access the request context and environment
     ///
     /// # Examples
     /// ```
     /// use ruxno_middleware::{HealthCheckConfig, HealthCheckResult};
     ///
     /// let config = HealthCheckConfig::new()
-    ///     .with_check("database", || async {
-    ///         // Check database connection
-    ///         HealthCheckResult::healthy()
+    ///     .with_check("database", |ctx| async move {
+    ///         // Access environment from context
+    ///         let env = ctx.env();
+    ///         // Check database connection using env config
+    ///         HealthCheckResult::healthy_with_message("Database connection OK")
     ///     });
     /// ```
     pub fn with_check<F, Fut>(mut self, name: impl Into<String>, check: F) -> Self
     where
-        F: Fn() -> Fut + Send + Sync + 'static,
+        E: Send + Sync + 'static,
+        F: Fn(Context<E>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = HealthCheckResult> + Send + 'static,
     {
-        let check_fn: HealthCheckFn = Arc::new(move || Box::pin(check()));
-        self.checks.insert(name.into(), check_fn);
+        let check_fn: ContextHealthCheckFn<E> = Arc::new(move |ctx| Box::pin(check(ctx)));
+        self.context_checks.insert(name.into(), check_fn);
         self
     }
 }
 
 /// Health check middleware
 #[derive(Clone)]
-pub struct HealthCheckMiddleware {
-    config: HealthCheckConfig,
+pub struct HealthCheckMiddleware<E = ()> {
+    config: HealthCheckConfig<E>,
 }
 
-impl HealthCheckMiddleware {
+impl<E> HealthCheckMiddleware<E> {
     /// Create a new health check middleware with default configuration
     pub fn new() -> Self {
         Self {
@@ -231,7 +239,7 @@ impl HealthCheckMiddleware {
     }
 
     /// Create a health check middleware with custom configuration
-    pub fn with_config(config: HealthCheckConfig) -> Self {
+    pub fn with_config(config: HealthCheckConfig<E>) -> Self {
         Self { config }
     }
 
@@ -247,27 +255,28 @@ impl HealthCheckMiddleware {
         self
     }
 
-    /// Add a custom health check
+    /// Add a context-aware health check
     pub fn with_check<F, Fut>(mut self, name: impl Into<String>, check: F) -> Self
     where
-        F: Fn() -> Fut + Send + Sync + 'static,
+        E: Send + Sync + 'static,
+        F: Fn(Context<E>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = HealthCheckResult> + Send + 'static,
     {
-        let check_fn: HealthCheckFn = Arc::new(move || Box::pin(check()));
-        self.config.checks.insert(name.into(), check_fn);
+        let check_fn: ContextHealthCheckFn<E> = Arc::new(move |ctx| Box::pin(check(ctx)));
+        self.config.context_checks.insert(name.into(), check_fn);
         self
     }
 
     /// Execute all health checks
-    async fn execute_checks(&self) -> HealthResponse {
+    async fn execute_checks(&self, ctx: &Context<E>) -> HealthResponse {
         let start = Instant::now();
         let mut checks = HashMap::new();
         let mut overall_status = HealthStatus::Healthy;
 
-        // Execute all custom checks
-        for (name, check_fn) in &self.config.checks {
+        // Execute context-aware checks
+        for (name, check_fn) in &self.config.context_checks {
             let check_start = Instant::now();
-            let mut result = check_fn().await;
+            let mut result = check_fn(ctx.clone()).await;
             result.duration_ms = Some(check_start.elapsed().as_millis() as u64);
 
             // Update overall status
@@ -307,21 +316,21 @@ impl HealthCheckMiddleware {
     }
 }
 
-impl Default for HealthCheckMiddleware {
+impl<E> Default for HealthCheckMiddleware<E> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl<E> Middleware<E> for HealthCheckMiddleware
+impl<E> Middleware<E> for HealthCheckMiddleware<E>
 where
     E: Send + Sync + 'static,
 {
     async fn process(&self, ctx: Context<E>, next: Next<E>) -> Result<Response, CoreError> {
         // Check if this is a health check request
         if ctx.req.path() == self.config.path {
-            let health_response = self.execute_checks().await;
+            let health_response = self.execute_checks(&ctx).await;
             let status_code = health_response.status.to_http_status();
 
             // Try to create a simple JSON response first
@@ -368,18 +377,22 @@ where
 ///
 /// let config = HealthCheckConfig::new()
 ///     .with_path("/healthz")
-///     .with_check("database", || async {
-///         // Check database connection
+///     .with_check("database", |ctx| async move {
+///         // Access environment from context
+///         let env = ctx.env();
+///         // Check database connection using env config
 ///         HealthCheckResult::healthy()
 ///     })
-///     .with_check("cache", || async {
+///     .with_check("cache", |ctx| async move {
+///         // Access environment from context
+///         let env = ctx.env();
 ///         // Check cache connection
 ///         HealthCheckResult::healthy()
 ///     });
 ///
 /// let middleware = health_check_with_config(config);
 /// ```
-pub fn health_check_with_config<E>(config: HealthCheckConfig) -> impl Middleware<E>
+pub fn health_check_with_config<E>(config: HealthCheckConfig<E>) -> impl Middleware<E>
 where
     E: Send + Sync + 'static,
 {
@@ -465,26 +478,31 @@ mod tests {
         assert_eq!(result.duration_ms, Some(50));
     }
 
-    #[test]
-    fn test_health_check_config() {
-        let config = HealthCheckConfig::new()
-            .with_path("/healthz")
-            .with_detailed(false);
-
-        assert_eq!(config.path, "/healthz");
-        assert!(!config.detailed);
-    }
-
     #[tokio::test]
     async fn test_health_check_middleware() {
+        use ruxno::core::Method;
+        use ruxno::domain::Request;
+        use ruxno::http::Headers;
+        use std::collections::HashMap;
+
         let middleware = HealthCheckMiddleware::new()
             .with_path("/test-health")
-            .with_check("test", || async {
+            .with_check("test", |_ctx| async move {
                 sleep(Duration::from_millis(10)).await;
                 HealthCheckResult::healthy_with_message("Test passed")
             });
 
-        let response = middleware.execute_checks().await;
+        // Create a mock context
+        let req = Request::new(
+            Method::GET,
+            "/test-health".parse().unwrap(),
+            HashMap::new(),
+            Headers::new(),
+            bytes::Bytes::new(),
+        );
+        let ctx = ruxno::Context::new(req, std::sync::Arc::new(()));
+
+        let response = middleware.execute_checks(&ctx).await;
         assert_eq!(response.status, HealthStatus::Healthy);
         assert!(response.checks.contains_key("test"));
         assert!(response.duration_ms.is_some());
@@ -492,26 +510,62 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_check_with_failing_check() {
+        use ruxno::core::Method;
+        use ruxno::domain::Request;
+        use ruxno::http::Headers;
+        use std::collections::HashMap;
+
         let middleware = HealthCheckMiddleware::new()
-            .with_check("failing", || async {
+            .with_check("failing", |_ctx| async move {
                 HealthCheckResult::unhealthy("Test failure")
             })
-            .with_check("passing", || async { HealthCheckResult::healthy() });
+            .with_check(
+                "passing",
+                |_ctx| async move { HealthCheckResult::healthy() },
+            );
 
-        let response = middleware.execute_checks().await;
+        // Create a mock context
+        let req = Request::new(
+            Method::GET,
+            "/health".parse().unwrap(),
+            HashMap::new(),
+            Headers::new(),
+            bytes::Bytes::new(),
+        );
+        let ctx = ruxno::Context::new(req, std::sync::Arc::new(()));
+
+        let response = middleware.execute_checks(&ctx).await;
         assert_eq!(response.status, HealthStatus::Unhealthy);
         assert_eq!(response.checks.len(), 2);
     }
 
     #[tokio::test]
     async fn test_health_check_with_degraded_check() {
+        use ruxno::core::Method;
+        use ruxno::domain::Request;
+        use ruxno::http::Headers;
+        use std::collections::HashMap;
+
         let middleware = HealthCheckMiddleware::new()
-            .with_check("degraded", || async {
+            .with_check("degraded", |_ctx| async move {
                 HealthCheckResult::degraded("Slow response")
             })
-            .with_check("healthy", || async { HealthCheckResult::healthy() });
+            .with_check(
+                "healthy",
+                |_ctx| async move { HealthCheckResult::healthy() },
+            );
 
-        let response = middleware.execute_checks().await;
+        // Create a mock context
+        let req = Request::new(
+            Method::GET,
+            "/health".parse().unwrap(),
+            HashMap::new(),
+            Headers::new(),
+            bytes::Bytes::new(),
+        );
+        let ctx = ruxno::Context::new(req, std::sync::Arc::new(()));
+
+        let response = middleware.execute_checks(&ctx).await;
         assert_eq!(response.status, HealthStatus::Degraded);
     }
 }

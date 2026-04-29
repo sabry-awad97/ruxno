@@ -282,7 +282,7 @@ where
         }
 
         // Track active connections for graceful shutdown
-        let active_connections = Arc::new(Semaphore::new(0));
+        let active_connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let shutdown_timeout = self.config.shutdown_timeout();
 
         tokio::pin!(shutdown);
@@ -339,8 +339,8 @@ where
                     let request_timeout = self.config.request_timeout();
 
                     // Add permit to track active connections
-                    active_connections.add_permits(1);
-                    let connection_tracker = active_connections.clone();
+                    active_connections.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let connection_counter = active_connections.clone();
 
                     // Spawn a task to handle this connection
                     tokio::spawn(async move {
@@ -372,8 +372,8 @@ where
                             eprintln!("Connection error from {}: {}", peer_addr, e);
                         }
 
-                        // Release connection tracking permit
-                        let _ = connection_tracker.acquire().await;
+                        // Decrement connection counter when connection ends
+                        connection_counter.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
 
                         // Permit is automatically released when _permit is dropped
                     });
@@ -384,7 +384,7 @@ where
                     println!("📡 Stopped accepting new connections");
 
                     // Get current active connection count
-                    let active_count = active_connections.available_permits();
+                    let active_count = active_connections.load(std::sync::atomic::Ordering::SeqCst);
 
                     if active_count > 0 {
                         println!("⏳ Waiting for {} active connection(s) to complete...", active_count);
@@ -393,8 +393,8 @@ where
                         let wait_result = tokio::time::timeout(
                             shutdown_timeout,
                             async {
-                                // Wait until all connection permits are released
-                                while active_connections.available_permits() > 0 {
+                                // Poll connection count until it reaches zero
+                                while active_connections.load(std::sync::atomic::Ordering::SeqCst) > 0 {
                                     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                                 }
                             }
@@ -405,7 +405,7 @@ where
                                 println!("✅ All connections closed gracefully");
                             }
                             Err(_) => {
-                                let remaining = active_connections.available_permits();
+                                let remaining = active_connections.load(std::sync::atomic::Ordering::SeqCst);
                                 println!("⚠️  Shutdown timeout reached after {:?}", shutdown_timeout);
                                 println!("⚠️  Forcefully closing {} remaining connection(s)", remaining);
                             }
