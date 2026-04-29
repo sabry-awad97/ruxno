@@ -31,8 +31,14 @@ impl Extensions {
     }
 
     /// Remove typed value
-    pub fn remove<T: Send + Sync + 'static>(&mut self) -> Option<Arc<dyn Any + Send + Sync>> {
-        self.map.remove(&TypeId::of::<T>())
+    ///
+    /// Returns the value if it existed, attempting to unwrap it from the Arc.
+    /// Returns None if the type doesn't exist or if there are other Arc references.
+    pub fn remove<T: Send + Sync + 'static>(&mut self) -> Option<T> {
+        self.map
+            .remove(&TypeId::of::<T>())
+            .and_then(|arc| Arc::downcast::<T>(arc).ok())
+            .and_then(|arc| Arc::try_unwrap(arc).ok())
     }
 
     /// Check if type exists
