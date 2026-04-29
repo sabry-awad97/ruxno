@@ -103,8 +103,14 @@ pub trait Handler<E = ()>: Send + Sync + 'static {
 ///
 /// The framework uses `BoxedHandler::new()` internally when building routing tables.
 /// The `From` trait implementation allows automatic conversion from closures.
-#[derive(Clone)]
 pub struct BoxedHandler<E = ()>(Arc<dyn Handler<E>>);
+
+// Manual Clone implementation since Arc<T> is Clone regardless of T's bounds
+impl<E> Clone for BoxedHandler<E> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
 
 impl<E> BoxedHandler<E>
 where
