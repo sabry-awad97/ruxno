@@ -105,7 +105,6 @@ struct RequestInner {
     params: Params,
 
     /// Cached parsed body (lazy initialization)
-    #[allow(dead_code)]
     body_cache: RwLock<BodyCache>,
 }
 
@@ -113,12 +112,14 @@ struct RequestInner {
 #[derive(Default)]
 struct BodyCache {
     /// Cached JSON string (for re-parsing into different types)
+    #[allow(dead_code)]
     json: Option<String>,
 
     /// Cached text
     text: Option<String>,
 
     /// Cached form data
+    #[allow(dead_code)]
     form: Option<HashMap<String, String>>,
 }
 

@@ -22,10 +22,9 @@ mod views;
 use config::AppEnv;
 use middleware::logging_middleware;
 use routes::configure_routes;
-use services::{database_health_check, external_api_health_check, memory_health_check};
 
 use ruxno::prelude::*;
-use ruxno_middleware::{HealthCheckConfig, cors, health_check_with_config, pretty_json};
+use ruxno_middleware::{cors, pretty_json};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,11 +34,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Configure global middleware
     configure_middleware(&mut app);
 
-    // Configure all routes
+    // Configure all routes (including health check)
     configure_routes(&mut app);
-
-    // Configure health checks
-    configure_health_checks(&mut app);
 
     // Print server info and start
     util::print_server_info();
@@ -58,15 +54,4 @@ fn configure_middleware(app: &mut App<AppEnv>) {
 
     // Pretty JSON middleware - formats all JSON responses
     app.r#use(pretty_json());
-}
-
-/// Configure health check endpoints
-fn configure_health_checks(app: &mut App<AppEnv>) {
-    let health_config = HealthCheckConfig::new()
-        .with_path("/health")
-        .with_check("database", database_health_check)
-        .with_check("memory", memory_health_check)
-        .with_check("external_api", external_api_health_check);
-
-    app.r#use(health_check_with_config(health_config));
 }
