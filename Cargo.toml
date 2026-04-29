@@ -51,6 +51,7 @@ async-stream = "0.3"
 # Body parsing
 serde_qs = "1.1.1"
 urlencoding = "2.1"
+serde_urlencoded = "0.7.1"
 
 [dev-dependencies]
 tokio-test = "0.4.5"
