@@ -137,7 +137,7 @@ impl WebSocket {
     /// socket.send_text("Hello, World!").await?;
     /// ```
     pub async fn send_text(&mut self, text: impl Into<String>) -> Result<(), CoreError> {
-        self.send(Message::Text(text.into())).await
+        self.send(Message::text(text)).await
     }
 
     /// Send a binary message
@@ -150,7 +150,7 @@ impl WebSocket {
     /// socket.send_binary(vec![1, 2, 3, 4]).await?;
     /// ```
     pub async fn send_binary(&mut self, data: impl Into<bytes::Bytes>) -> Result<(), CoreError> {
-        self.send(Message::Binary(data.into())).await
+        self.send(Message::binary(data)).await
     }
 
     /// Send a ping message
@@ -163,7 +163,7 @@ impl WebSocket {
     /// socket.send_ping(vec![]).await?;
     /// ```
     pub async fn send_ping(&mut self, data: Vec<u8>) -> Result<(), CoreError> {
-        self.send(Message::Ping(data)).await
+        self.send(Message::ping(data)).await
     }
 
     /// Send a pong message
@@ -176,7 +176,7 @@ impl WebSocket {
     /// socket.send_pong(vec![]).await?;
     /// ```
     pub async fn send_pong(&mut self, data: Vec<u8>) -> Result<(), CoreError> {
-        self.send(Message::Pong(data)).await
+        self.send(Message::pong(data)).await
     }
 
     /// Receive a message
@@ -326,16 +326,16 @@ mod tests {
         let mut socket = WebSocket::new();
 
         // Test all message types
-        assert!(socket.send(Message::Text("test".to_string())).await.is_ok());
+        assert!(socket.send(Message::text("test")).await.is_ok());
         assert!(
             socket
-                .send(Message::Binary(Bytes::from(vec![1, 2, 3])))
+                .send(Message::binary(Bytes::from(vec![1, 2, 3])))
                 .await
                 .is_ok()
         );
-        assert!(socket.send(Message::Ping(vec![1, 2])).await.is_ok());
-        assert!(socket.send(Message::Pong(vec![3, 4])).await.is_ok());
-        assert!(socket.send(Message::Close).await.is_ok());
+        assert!(socket.send(Message::ping(vec![1, 2])).await.is_ok());
+        assert!(socket.send(Message::pong(vec![3, 4])).await.is_ok());
+        assert!(socket.send(Message::close()).await.is_ok());
 
         // After close, should be closed
         assert!(socket.is_closed().await);

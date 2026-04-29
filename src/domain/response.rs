@@ -272,6 +272,25 @@ impl Response {
         self
     }
 
+    /// Set body with a stream (for SSE, large responses, etc.)
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let stream = futures_util::stream::iter(vec![
+    ///     Ok(Bytes::from("chunk1")),
+    ///     Ok(Bytes::from("chunk2")),
+    /// ]);
+    /// let res = Response::new().with_stream(stream);
+    /// ```
+    pub fn with_stream<S>(mut self, stream: S) -> Self
+    where
+        S: Stream<Item = Result<Bytes, std::io::Error>> + Send + 'static,
+    {
+        self.body = ResponseBody::Stream(Box::pin(stream));
+        self
+    }
+
     /// Get status code
     ///
     /// # Examples
@@ -353,6 +372,17 @@ impl From<&str> for Response {
 impl From<Bytes> for Response {
     fn from(bytes: Bytes) -> Self {
         Response::new().with_bytes(bytes)
+    }
+}
+
+// Conversion from http::Body to ResponseBody
+impl From<crate::http::Body> for ResponseBody {
+    fn from(body: crate::http::Body) -> Self {
+        // Convert Body to stream
+        let stream = body.into_stream();
+
+        // Wrap in ResponseBody::Stream
+        ResponseBody::Stream(Box::pin(stream))
     }
 }
 

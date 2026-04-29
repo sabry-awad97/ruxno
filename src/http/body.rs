@@ -51,34 +51,30 @@ enum BodyInner {
     Incoming(Incoming),
     /// Buffered bytes
     Bytes(Bytes),
+    /// Generic stream
+    Stream(Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>),
     /// Empty body
     Empty,
 }
 
 impl Body {
-    /// Create body from Hyper incoming body
+    /// Create body from a stream
     ///
     /// # Examples
     ///
     /// ```rust,ignore
-    /// let body = Body::from_incoming(incoming);
+    /// let stream = futures_util::stream::iter(vec![
+    ///     Ok(Bytes::from("Hello")),
+    ///     Ok(Bytes::from(" World")),
+    /// ]);
+    /// let body = Body::from_stream(stream);
     /// ```
-    pub fn from_incoming(incoming: Incoming) -> Self {
+    pub fn from_stream<S>(stream: S) -> Self
+    where
+        S: Stream<Item = Result<Bytes, std::io::Error>> + Send + 'static,
+    {
         Self {
-            inner: BodyInner::Incoming(incoming),
-        }
-    }
-
-    /// Create body from bytes
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let body = Body::from_bytes(Bytes::from("Hello, World!"));
-    /// ```
-    pub fn from_bytes(bytes: Bytes) -> Self {
-        Self {
-            inner: BodyInner::Bytes(bytes),
+            inner: BodyInner::Stream(Box::pin(stream)),
         }
     }
 
@@ -109,6 +105,7 @@ impl Body {
             BodyInner::Empty => true,
             BodyInner::Bytes(b) => b.is_empty(),
             BodyInner::Incoming(_) => false, // Can't know without consuming
+            BodyInner::Stream(_) => false,   // Can't know without consuming
         }
     }
 
@@ -129,6 +126,8 @@ impl Body {
     /// println!("Body size: {} bytes", bytes.len());
     /// ```
     pub async fn to_bytes(self) -> Result<Bytes, BodyError> {
+        use futures_util::StreamExt;
+
         match self.inner {
             BodyInner::Incoming(incoming) => {
                 // Buffer the streaming body
@@ -139,6 +138,17 @@ impl Body {
                     .map_err(|e| BodyError::ReadError(e.to_string()))
             }
             BodyInner::Bytes(bytes) => Ok(bytes),
+            BodyInner::Stream(mut stream) => {
+                // Collect all chunks from the stream
+                let mut buffer = Vec::new();
+                while let Some(result) = stream.next().await {
+                    match result {
+                        Ok(chunk) => buffer.extend_from_slice(&chunk),
+                        Err(e) => return Err(BodyError::ReadError(e.to_string())),
+                    }
+                }
+                Ok(Bytes::from(buffer))
+            }
             BodyInner::Empty => Ok(Bytes::new()),
         }
     }
@@ -167,6 +177,7 @@ impl Body {
         match self.inner {
             BodyInner::Incoming(incoming) => BodyStream::Incoming(incoming),
             BodyInner::Bytes(bytes) => BodyStream::Buffered(Some(bytes)),
+            BodyInner::Stream(stream) => BodyStream::Generic(stream),
             BodyInner::Empty => BodyStream::Buffered(None),
         }
     }
@@ -181,10 +192,12 @@ pub enum BodyStream {
     Incoming(Incoming),
     /// Buffered bytes (yields once then ends)
     Buffered(Option<Bytes>),
+    /// Generic stream
+    Generic(Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>),
 }
 
 impl Stream for BodyStream {
-    type Item = Result<Bytes, BodyError>;
+    type Item = Result<Bytes, std::io::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match &mut *self {
@@ -203,7 +216,7 @@ impl Stream for BodyStream {
                         }
                     }
                     Poll::Ready(Some(Err(e))) => {
-                        Poll::Ready(Some(Err(BodyError::ReadError(e.to_string()))))
+                        Poll::Ready(Some(Err(std::io::Error::other(e.to_string()))))
                     }
                     Poll::Ready(None) => Poll::Ready(None),
                     Poll::Pending => Poll::Pending,
@@ -212,6 +225,15 @@ impl Stream for BodyStream {
             BodyStream::Buffered(bytes) => {
                 // Yield buffered bytes once, then end stream
                 Poll::Ready(bytes.take().map(Ok))
+            }
+            BodyStream::Generic(stream) => {
+                // Poll the generic stream
+                match stream.as_mut().poll_next(cx) {
+                    Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(Ok(bytes))),
+                    Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
+                    Poll::Ready(None) => Poll::Ready(None),
+                    Poll::Pending => Poll::Pending,
+                }
             }
         }
     }
@@ -239,32 +261,56 @@ impl std::error::Error for BodyError {}
 // Conversion traits
 
 impl From<Incoming> for Body {
+    /// Create body from Hyper incoming body
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let body = Body::from(incoming);
+    /// ```
     fn from(incoming: Incoming) -> Self {
-        Self::from_incoming(incoming)
+        Self {
+            inner: BodyInner::Incoming(incoming),
+        }
     }
 }
 
 impl From<Bytes> for Body {
+    /// Create body from bytes
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let body = Body::from_bytes(Bytes::from("Hello, World!"));
+    /// ```
     fn from(bytes: Bytes) -> Self {
-        Self::from_bytes(bytes)
+        Self {
+            inner: BodyInner::Bytes(bytes),
+        }
     }
 }
 
 impl From<String> for Body {
     fn from(s: String) -> Self {
-        Self::from_bytes(Bytes::from(s))
+        Self {
+            inner: BodyInner::Bytes(Bytes::from(s)),
+        }
     }
 }
 
 impl From<&str> for Body {
     fn from(s: &str) -> Self {
-        Self::from_bytes(Bytes::from(s.to_string()))
+        Self {
+            inner: BodyInner::Bytes(Bytes::from(s.to_string())),
+        }
     }
 }
 
 impl From<Vec<u8>> for Body {
     fn from(v: Vec<u8>) -> Self {
-        Self::from_bytes(Bytes::from(v))
+        Self {
+            inner: BodyInner::Bytes(Bytes::from(v)),
+        }
     }
 }
 
@@ -281,14 +327,14 @@ mod tests {
     #[test]
     fn test_body_from_bytes() {
         let bytes = Bytes::from("Hello, World!");
-        let body = Body::from_bytes(bytes.clone());
+        let body = Body::from(bytes.clone());
         assert!(!body.is_empty());
     }
 
     #[tokio::test]
     async fn test_body_to_bytes_from_bytes() {
         let bytes = Bytes::from("Hello, World!");
-        let body = Body::from_bytes(bytes.clone());
+        let body = Body::from(bytes.clone());
         let result = body.to_bytes().await.unwrap();
         assert_eq!(result, bytes);
     }
@@ -305,7 +351,7 @@ mod tests {
         use futures_util::StreamExt;
 
         let bytes = Bytes::from("Hello, World!");
-        let body = Body::from_bytes(bytes.clone());
+        let body = Body::from(bytes.clone());
         let mut stream = body.into_stream();
 
         // First chunk should be the bytes
