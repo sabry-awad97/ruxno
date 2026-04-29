@@ -8,9 +8,9 @@ async fn main() {
 
     // Global middleware - applies to all routes (use "*" pattern)
     app.use_middleware("*", async |ctx: Context, next: Next| {
-        println!("🔍 Request: {} {}", ctx.req.method.as_str(), ctx.req.path());
+        println!("🔍 Request: {} {}", ctx.req.method().as_str(), ctx.req.path());
         let response = next.run(ctx).await?;
-        println!("✅ Response: {}", response.status);
+        println!("✅ Response: {}", response.status());
         Ok(response)
     });
 

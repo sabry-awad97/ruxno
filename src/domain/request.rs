@@ -35,6 +35,7 @@
 //! ```
 
 use crate::core::{CoreError, Method};
+use crate::routing::Params;
 use bytes::Bytes;
 use http::{HeaderMap, Uri};
 use std::collections::HashMap;
@@ -100,7 +101,7 @@ struct RequestInner {
     body: Bytes,
 
     /// Path parameters (set by router, immutable after construction)
-    params: HashMap<String, String>,
+    params: Params,
 
     /// Cached parsed body (lazy initialization)
     #[allow(dead_code)]
@@ -157,7 +158,7 @@ impl Request {
                 query,
                 headers,
                 body,
-                params: HashMap::new(),
+                params: Params::new(),
                 body_cache: RwLock::new(BodyCache::default()),
             }),
         }
@@ -179,7 +180,7 @@ impl Request {
     /// let params = HashMap::from([("id".to_string(), "123".to_string())]);
     /// let req = base_req.with_params(params);
     /// ```
-    pub fn with_params(self, params: HashMap<String, String>) -> Self {
+    pub fn with_params(self, params: Params) -> Self {
         // Create new RequestInner with updated params
         // This avoids Arc::make_mut which requires Clone on RequestInner
         Self {
@@ -330,7 +331,6 @@ impl Request {
         self.inner
             .params
             .get(key)
-            .map(|s| s.as_str())
             .ok_or_else(|| CoreError::missing_parameter(key))
     }
 
@@ -344,7 +344,7 @@ impl Request {
     ///     println!("{} = {}", key, value);
     /// }
     /// ```
-    pub fn params(&self) -> &HashMap<String, String> {
+    pub fn params(&self) -> &Params {
         &self.inner.params
     }
 
@@ -561,7 +561,7 @@ mod tests {
         let req = create_test_request();
 
         // Set params using with_params
-        let req = req.with_params(HashMap::from([
+        let req = req.with_params(Params::from(vec![
             ("id".to_string(), "123".to_string()),
             ("name".to_string(), "john".to_string()),
         ]));
@@ -575,11 +575,11 @@ mod tests {
     fn test_request_params() {
         let req = create_test_request();
 
-        let req = req.with_params(HashMap::from([("id".to_string(), "123".to_string())]));
+        let req = req.with_params(Params::from(vec![("id".to_string(), "123".to_string())]));
 
         let params = req.params();
         assert_eq!(params.len(), 1);
-        assert_eq!(params.get("id"), Some(&"123".to_string()));
+        assert_eq!(params.get("id"), Some("123"));
     }
 
     #[test]
@@ -588,7 +588,7 @@ mod tests {
         let req2 = req1.clone();
 
         // Set params on req2
-        let req2 = req2.with_params(HashMap::from([("id".to_string(), "123".to_string())]));
+        let req2 = req2.with_params(Params::from(vec![("id".to_string(), "123".to_string())]));
 
         // req1 should not have params (immutable)
         assert!(req1.param("id").is_err());
