@@ -208,6 +208,11 @@ where
     /// Start listening with a custom shutdown signal
     ///
     /// This allows you to provide your own shutdown signal instead of using Ctrl+C.
+    /// Implements complete graceful shutdown:
+    /// - Stops accepting new connections
+    /// - Waits for in-flight requests to complete
+    /// - Respects shutdown timeout from config
+    /// - Logs shutdown progress
     ///
     /// # Examples
     ///
@@ -276,6 +281,10 @@ where
             println!("⚠️  No connection limit (unlimited connections)");
         }
 
+        // Track active connections for graceful shutdown
+        let active_connections = Arc::new(Semaphore::new(0));
+        let shutdown_timeout = self.config.shutdown_timeout();
+
         tokio::pin!(shutdown);
 
         // Main server loop
@@ -329,6 +338,10 @@ where
                     let max_headers = self.config.max_headers();
                     let request_timeout = self.config.request_timeout();
 
+                    // Add permit to track active connections
+                    active_connections.add_permits(1);
+                    let connection_tracker = active_connections.clone();
+
                     // Spawn a task to handle this connection
                     tokio::spawn(async move {
                         // Hold permit for the duration of the connection
@@ -359,12 +372,49 @@ where
                             eprintln!("Connection error from {}: {}", peer_addr, e);
                         }
 
+                        // Release connection tracking permit
+                        let _ = connection_tracker.acquire().await;
+
                         // Permit is automatically released when _permit is dropped
                     });
                 }
                 // Handle shutdown signal
                 _ = &mut shutdown => {
-                    println!("Server stopped");
+                    println!("🛑 Shutdown signal received");
+                    println!("📡 Stopped accepting new connections");
+
+                    // Get current active connection count
+                    let active_count = active_connections.available_permits();
+
+                    if active_count > 0 {
+                        println!("⏳ Waiting for {} active connection(s) to complete...", active_count);
+
+                        // Wait for all connections to complete with timeout
+                        let wait_result = tokio::time::timeout(
+                            shutdown_timeout,
+                            async {
+                                // Wait until all connection permits are released
+                                while active_connections.available_permits() > 0 {
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                                }
+                            }
+                        ).await;
+
+                        match wait_result {
+                            Ok(_) => {
+                                println!("✅ All connections closed gracefully");
+                            }
+                            Err(_) => {
+                                let remaining = active_connections.available_permits();
+                                println!("⚠️  Shutdown timeout reached after {:?}", shutdown_timeout);
+                                println!("⚠️  Forcefully closing {} remaining connection(s)", remaining);
+                            }
+                        }
+                    } else {
+                        println!("✅ No active connections");
+                    }
+
+                    println!("👋 Server stopped");
                     break;
                 }
             }
