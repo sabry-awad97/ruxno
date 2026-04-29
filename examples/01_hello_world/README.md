@@ -4,6 +4,7 @@ A comprehensive example demonstrating Ruxno's core features.
 
 ## Features Demonstrated
 
+- 🔍 **HTTP Sniffer middleware** - Detailed request logging similar to Node.js HTTP sniffing utilities
 - ✨ **Pretty JSON middleware** - Automatic JSON formatting with 2-space indentation
 - 🔍 **Global middleware** - Request/response logging for all routes
 - 🔐 **Path-specific middleware** - Middleware that only applies to specific routes
@@ -24,6 +25,16 @@ The server will start on `http://127.0.0.1:3000` and display:
 - Features table
 - Routes table
 - Middleware patterns table
+
+**Note:** The HTTP sniffer middleware will log detailed information about every request, including:
+
+- Timestamp (ISO 8601 format)
+- HTTP method and version
+- Request URL and parsed components
+- All headers with enumerated output
+- Query parameters
+
+Watch the console output to see the detailed request logs!
 
 ### Test with the Client
 
@@ -92,6 +103,10 @@ curl http://127.0.0.1:3000/api/status
 
 ## Middleware Patterns
 
+- **HTTP Sniffer** - Logs detailed request information for all routes
+  - Captures HTTP method, version, URL, headers, and query parameters
+  - Useful for debugging and monitoring
+
 - **Global (`*`)** - Applies to all routes
   - Logs all requests and responses
   - Pretty-prints all JSON responses
@@ -117,6 +132,16 @@ curl http://127.0.0.1:3000/api/status
 ```
 
 ## Code Highlights
+
+### HTTP Sniffer Middleware
+
+```rust
+use crate::middleware::http_sniffer::HttpSnifferExt;
+
+app.with_http_sniffer();
+```
+
+Logs detailed request information including method, version, URL, headers, and query parameters.
 
 ### Pretty JSON Middleware
 
