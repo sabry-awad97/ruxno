@@ -117,11 +117,8 @@ where
             crate::body::JsonParser::parse_as(body).await
         }
         Some(ct) if ct.contains("application/x-www-form-urlencoded") => {
-            // Parse as form data
-            let text = String::from_utf8(body.to_vec())
-                .map_err(|e| CoreError::body_parse_error(format!("Invalid UTF-8: {}", e)))?;
-            serde_urlencoded::from_str(&text)
-                .map_err(|e| CoreError::body_parse_error(format!("Invalid form data: {}", e)))
+            // Use FormParser for consistent parsing with size limits
+            crate::body::FormParser::parse_as(body).await
         }
         Some(ct) if ct.contains("text/plain") => {
             // Parse as text (if T is String)

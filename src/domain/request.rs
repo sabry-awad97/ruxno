@@ -422,12 +422,13 @@ impl Request {
 
     /// Parse body as URL-encoded form data
     ///
-    /// The body is parsed from cached text. This ensures consistent behavior
-    /// with other parsing methods.
+    /// Uses the `FormParser` with default size limits (1MB).
+    /// The body is parsed from raw bytes for optimal performance.
     ///
     /// # Errors
     ///
     /// Returns `CoreError::BodyParseError` if the body is not valid form data.
+    /// Returns `CoreError::BadRequest` if body exceeds size limit.
     ///
     /// # Examples
     ///
@@ -438,10 +439,8 @@ impl Request {
     /// }
     /// ```
     pub async fn form(&self) -> Result<HashMap<String, String>, CoreError> {
-        // Parse form data from cached text
-        let text = self.text().await?;
-        serde_urlencoded::from_str(&text)
-            .map_err(|e| CoreError::body_parse_error(format!("Invalid form data: {}", e)))
+        // Use FormParser for consistent parsing with size limits
+        crate::body::FormParser::parse_as(&self.inner.body).await
     }
 
     /// Get body as raw bytes (alias for `body()`)
