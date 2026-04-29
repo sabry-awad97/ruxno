@@ -6,4 +6,4 @@ mod executor;
 
 pub(crate) use chain::MiddlewareChain;
 pub(crate) use dispatcher::Dispatcher;
-pub(crate) use executor::Executor;
+pub use dispatcher::MiddlewareOptions;

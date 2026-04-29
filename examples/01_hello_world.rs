@@ -7,15 +7,19 @@ async fn main() {
     let mut app = App::new();
 
     // Global middleware - applies to all routes (use "*" pattern)
-    app.use_middleware("*", async |ctx: Context, next: Next| {
-        println!("🔍 Request: {} {}", ctx.req.method().as_str(), ctx.req.path());
+    app.r#use(async |ctx: Context, next: Next| {
+        println!(
+            "🔍 Request: {} {}",
+            ctx.req.method().as_str(),
+            ctx.req.path()
+        );
         let response = next.run(ctx).await?;
         println!("✅ Response: {}", response.status());
         Ok(response)
     });
 
     // Path-specific middleware - applies to /api/* routes
-    app.use_middleware("/api/*", async |ctx: Context, next: Next| {
+    app.r#use(async |ctx: Context, next: Next| {
         println!("🔐 API route - checking auth...");
         // TODO: Check authentication
         next.run(ctx).await
@@ -31,7 +35,7 @@ async fn main() {
 
     // Route with inline middleware using route builder
     app.route("/admin")
-        .use_middleware(async |ctx: Context, next: Next| {
+        .r#use(async |ctx: Context, next: Next| {
             println!("🔐 Admin route - checking admin auth...");
             // TODO: Check admin authentication
             next.run(ctx).await

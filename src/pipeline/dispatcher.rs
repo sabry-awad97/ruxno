@@ -33,8 +33,109 @@
 use crate::core::{BoxedHandler, CoreError, Handler, Method, Middleware};
 use crate::domain::{Context, Request, Response};
 use crate::pipeline::MiddlewareChain;
-use crate::routing::Router;
+use crate::routing::{Pattern, Router};
 use std::sync::Arc;
+
+/// Middleware registration options
+///
+/// Configures how middleware should be applied to routes.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// // Global middleware (no filters)
+/// let opts = MiddlewareOptions::new();
+///
+/// // Path-specific middleware
+/// let opts = MiddlewareOptions::new().on("/api/*");
+///
+/// // Method + path-specific middleware
+/// let opts = MiddlewareOptions::new().for_method(Method::POST).on("/api/*");
+/// ```
+#[derive(Default)]
+pub struct MiddlewareOptions {
+    /// Optional method filter (None = all methods)
+    method: Option<Method>,
+
+    /// Optional pattern filter (None = all paths)
+    pattern: Option<String>,
+}
+
+impl MiddlewareOptions {
+    /// Create new middleware options with no filters (global)
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let opts = MiddlewareOptions::new();
+    /// ```
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set method filter
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let opts = MiddlewareOptions::new().for_method(Method::POST);
+    /// ```
+    pub fn for_method(mut self, method: Method) -> Self {
+        self.method = Some(method);
+        self
+    }
+
+    /// Set pattern filter
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let opts = MiddlewareOptions::new().on("/api/*");
+    /// ```
+    pub fn on(mut self, pattern: impl Into<String>) -> Self {
+        self.pattern = Some(pattern.into());
+        self
+    }
+}
+
+/// Middleware registration entry
+///
+/// Stores middleware with optional method and pattern filters.
+struct MiddlewareEntry<E> {
+    /// Optional method filter (None = all methods)
+    method: Option<Method>,
+
+    /// Optional pattern filter (None = all paths)
+    pattern: Option<Pattern>,
+
+    /// The middleware instance
+    middleware: Arc<dyn Middleware<E>>,
+}
+
+impl<E> MiddlewareEntry<E> {
+    /// Check if this middleware matches the given method and path
+    fn matches(&self, method: &Method, path: &str) -> bool {
+        // Check method filter
+        if let Some(ref filter_method) = self.method {
+            if filter_method != method {
+                return false;
+            }
+        }
+
+        // Check pattern filter
+        if let Some(ref pattern) = self.pattern {
+            // Use matchit for pattern matching
+            let mut router = matchit::Router::new();
+            if router.insert(pattern.matchit_pattern(), ()).is_ok() {
+                return router.at(path).is_ok();
+            }
+            return false;
+        }
+
+        // No filters = matches everything
+        true
+    }
+}
 
 /// Dispatcher - Orchestrates request handling
 ///
@@ -53,7 +154,12 @@ use std::sync::Arc;
 ///
 /// // Register global middleware (applied to all routes)
 /// dispatcher.register_middleware(logger);
-/// dispatcher.register_middleware(cors);
+///
+/// // Register path-specific middleware
+/// dispatcher.register_middleware_on("/api/*", auth_middleware);
+///
+/// // Register method + path-specific middleware
+/// dispatcher.register_middleware_for(Method::POST, "/api/*", validation_middleware);
 ///
 /// // Dispatch a request
 /// let response = dispatcher.dispatch(request).await?;
@@ -62,8 +168,8 @@ pub struct Dispatcher<E = ()> {
     /// Router for route matching
     router: Router<E>,
 
-    /// Global middleware (applied to all routes)
-    global_middleware: Vec<Arc<dyn Middleware<E>>>,
+    /// Middleware entries with optional filters
+    middleware_entries: Vec<MiddlewareEntry<E>>,
 
     /// Environment for dependency injection
     env: Arc<E>,
@@ -87,16 +193,22 @@ where
     pub fn new(env: Arc<E>) -> Self {
         Self {
             router: Router::new(),
-            global_middleware: Vec::new(),
+            middleware_entries: Vec::new(),
             env,
         }
     }
 
     /// Register a route with a handler
     ///
-    /// The handler is wrapped with all global middleware into a pre-computed
+    /// The handler is wrapped with all matching middleware into a pre-computed
     /// chain at registration time. This means zero per-request overhead for
     /// middleware chain building.
+    ///
+    /// Middleware matching rules:
+    /// - Global middleware (no filters) always match
+    /// - Method-filtered middleware match if method matches
+    /// - Pattern-filtered middleware match if pattern matches the route path
+    /// - Method + pattern-filtered middleware match if both match
     ///
     /// # Arguments
     ///
@@ -127,9 +239,11 @@ where
         // Build middleware chain (pre-computed at registration time)
         let mut chain = MiddlewareChain::new(boxed_handler);
 
-        // Add global middleware to the chain
-        for middleware in &self.global_middleware {
-            chain.add(Arc::clone(middleware));
+        // Add matching middleware to the chain
+        for entry in &self.middleware_entries {
+            if entry.matches(&method, path) {
+                chain.add(Arc::clone(&entry.middleware));
+            }
         }
 
         // Build the pre-computed chain
@@ -141,28 +255,66 @@ where
         Ok(())
     }
 
-    /// Register global middleware
+    /// Register middleware with optional filters
     ///
-    /// Global middleware is applied to all routes. Middleware are applied
-    /// in the order they're registered.
+    /// This is the unified middleware registration method that supports:
+    /// - Global middleware (no options)
+    /// - Path-specific middleware (with pattern)
+    /// - Method-specific middleware (with method)
+    /// - Method + path-specific middleware (with both)
+    ///
+    /// Middleware are applied in the order they're registered.
     ///
     /// **Important**: Middleware must be registered *before* routes for them
     /// to be included in the route's pre-computed chain.
     ///
     /// # Arguments
     ///
-    /// - `middleware`: Middleware to apply to all routes
+    /// - `middleware`: Middleware to register
+    /// - `options`: Optional filters (method, pattern, or both)
     ///
     /// # Examples
     ///
     /// ```rust,ignore
-    /// dispatcher.register_middleware(logger);
-    /// dispatcher.register_middleware(cors);
-    /// // Now register routes - they'll include both middleware
-    /// dispatcher.register_route(Method::GET, "/", handler)?;
+    /// use ruxno::{Dispatcher, MiddlewareOptions, Method};
+    ///
+    /// let mut dispatcher = Dispatcher::new(Arc::new(()));
+    ///
+    /// // Global middleware (no filters)
+    /// dispatcher.register_middleware(logger, None);
+    ///
+    /// // Path-specific middleware
+    /// let opts = MiddlewareOptions::new().on("/api/*");
+    /// dispatcher.register_middleware(auth, Some(opts));
+    ///
+    /// // Method-specific middleware
+    /// let opts = MiddlewareOptions::new().for_method(Method::POST);
+    /// dispatcher.register_middleware(validator, Some(opts));
+    ///
+    /// // Method + path-specific middleware
+    /// let opts = MiddlewareOptions::new()
+    ///     .for_method(Method::POST)
+    ///     .on("/api/*");
+    /// dispatcher.register_middleware(csrf, Some(opts));
     /// ```
-    pub fn register_middleware(&mut self, middleware: impl Middleware<E>) {
-        self.global_middleware.push(Arc::new(middleware));
+    pub fn register_middleware(
+        &mut self,
+        middleware: impl Middleware<E>,
+        options: Option<MiddlewareOptions>,
+    ) {
+        let options = options.unwrap_or_default();
+
+        // Parse pattern if provided
+        let parsed_pattern = options
+            .pattern
+            .as_ref()
+            .and_then(|p| Pattern::parse(p).ok());
+
+        self.middleware_entries.push(MiddlewareEntry {
+            method: options.method,
+            pattern: parsed_pattern,
+            middleware: Arc::new(middleware),
+        });
     }
 
     /// Dispatch a request through the routing and middleware pipeline
@@ -320,10 +472,13 @@ mod tests {
         let mut dispatcher = Dispatcher::new(Arc::new(()));
 
         // Register middleware BEFORE routes
-        dispatcher.register_middleware(AddHeaderMiddleware {
-            name: "X-Custom".to_string(),
-            value: "middleware-value".to_string(),
-        });
+        dispatcher.register_middleware(
+            AddHeaderMiddleware {
+                name: "X-Custom".to_string(),
+                value: "middleware-value".to_string(),
+            },
+            None,
+        );
 
         // Register route
         dispatcher
@@ -456,5 +611,323 @@ mod tests {
         if let Err(error) = result {
             assert_eq!(error.status_code(), 500);
         }
+    }
+
+    #[tokio::test]
+    async fn test_dispatcher_pattern_middleware() {
+        struct AddHeaderMiddleware {
+            name: String,
+            value: String,
+        }
+
+        #[async_trait]
+        impl<E> Middleware<E> for AddHeaderMiddleware
+        where
+            E: Send + Sync + 'static,
+        {
+            async fn process(
+                &self,
+                ctx: Context<E>,
+                next: crate::core::Next<E>,
+            ) -> Result<Response, CoreError> {
+                let mut response = next.run(ctx).await?;
+                response.headers_mut().set(&self.name, &self.value).ok();
+                Ok(response)
+            }
+        }
+
+        let mut dispatcher = Dispatcher::new(Arc::new(()));
+
+        // Register pattern-specific middleware BEFORE routes
+        let opts = MiddlewareOptions::new().on("/api/*");
+        dispatcher.register_middleware(
+            AddHeaderMiddleware {
+                name: "X-API".to_string(),
+                value: "protected".to_string(),
+            },
+            Some(opts),
+        );
+
+        // Register routes
+        dispatcher
+            .register_route(Method::GET, "/api/users", |_ctx: Context<()>| async move {
+                Ok(Response::text("users"))
+            })
+            .unwrap();
+
+        dispatcher
+            .register_route(Method::GET, "/public", |_ctx: Context<()>| async move {
+                Ok(Response::text("public"))
+            })
+            .unwrap();
+
+        // Test /api/users - should have middleware header
+        let req = create_test_request(Method::GET, "/api/users");
+        let response = dispatcher.dispatch(req).await.unwrap();
+        assert_eq!(response.headers().get("X-API").unwrap(), "protected");
+
+        // Test /public - should NOT have middleware header
+        let req = create_test_request(Method::GET, "/public");
+        let response = dispatcher.dispatch(req).await.unwrap();
+        assert!(response.headers().get("X-API").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_dispatcher_method_pattern_middleware() {
+        struct AddHeaderMiddleware {
+            name: String,
+            value: String,
+        }
+
+        #[async_trait]
+        impl<E> Middleware<E> for AddHeaderMiddleware
+        where
+            E: Send + Sync + 'static,
+        {
+            async fn process(
+                &self,
+                ctx: Context<E>,
+                next: crate::core::Next<E>,
+            ) -> Result<Response, CoreError> {
+                let mut response = next.run(ctx).await?;
+                response.headers_mut().set(&self.name, &self.value).ok();
+                Ok(response)
+            }
+        }
+
+        let mut dispatcher = Dispatcher::new(Arc::new(()));
+
+        // Register method + pattern-specific middleware BEFORE routes
+        let opts = MiddlewareOptions::new()
+            .for_method(Method::POST)
+            .on("/api/*");
+        dispatcher.register_middleware(
+            AddHeaderMiddleware {
+                name: "X-Validated".to_string(),
+                value: "true".to_string(),
+            },
+            Some(opts),
+        );
+
+        // Register routes
+        dispatcher
+            .register_route(Method::POST, "/api/users", |_ctx: Context<()>| async move {
+                Ok(Response::text("create user"))
+            })
+            .unwrap();
+
+        dispatcher
+            .register_route(Method::GET, "/api/users", |_ctx: Context<()>| async move {
+                Ok(Response::text("get users"))
+            })
+            .unwrap();
+
+        dispatcher
+            .register_route(Method::POST, "/public", |_ctx: Context<()>| async move {
+                Ok(Response::text("public post"))
+            })
+            .unwrap();
+
+        // Test POST /api/users - should have middleware header
+        let req = create_test_request(Method::POST, "/api/users");
+        let response = dispatcher.dispatch(req).await.unwrap();
+        assert_eq!(response.headers().get("X-Validated").unwrap(), "true");
+
+        // Test GET /api/users - should NOT have middleware header (wrong method)
+        let req = create_test_request(Method::GET, "/api/users");
+        let response = dispatcher.dispatch(req).await.unwrap();
+        assert!(response.headers().get("X-Validated").is_none());
+
+        // Test POST /public - should NOT have middleware header (wrong path)
+        let req = create_test_request(Method::POST, "/public");
+        let response = dispatcher.dispatch(req).await.unwrap();
+        assert!(response.headers().get("X-Validated").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_dispatcher_exact_pattern_middleware() {
+        struct AddHeaderMiddleware {
+            name: String,
+            value: String,
+        }
+
+        #[async_trait]
+        impl<E> Middleware<E> for AddHeaderMiddleware
+        where
+            E: Send + Sync + 'static,
+        {
+            async fn process(
+                &self,
+                ctx: Context<E>,
+                next: crate::core::Next<E>,
+            ) -> Result<Response, CoreError> {
+                let mut response = next.run(ctx).await?;
+                response.headers_mut().set(&self.name, &self.value).ok();
+                Ok(response)
+            }
+        }
+
+        let mut dispatcher = Dispatcher::new(Arc::new(()));
+
+        // Register exact pattern middleware
+        let opts = MiddlewareOptions::new().on("/api/users");
+        dispatcher.register_middleware(
+            AddHeaderMiddleware {
+                name: "X-Exact".to_string(),
+                value: "match".to_string(),
+            },
+            Some(opts),
+        );
+
+        // Register routes
+        dispatcher
+            .register_route(Method::GET, "/api/users", |_ctx: Context<()>| async move {
+                Ok(Response::text("users"))
+            })
+            .unwrap();
+
+        dispatcher
+            .register_route(Method::GET, "/api/posts", |_ctx: Context<()>| async move {
+                Ok(Response::text("posts"))
+            })
+            .unwrap();
+
+        // Test /api/users - should have middleware header
+        let req = create_test_request(Method::GET, "/api/users");
+        let response = dispatcher.dispatch(req).await.unwrap();
+        assert_eq!(response.headers().get("X-Exact").unwrap(), "match");
+
+        // Test /api/posts - should NOT have middleware header
+        let req = create_test_request(Method::GET, "/api/posts");
+        let response = dispatcher.dispatch(req).await.unwrap();
+        assert!(response.headers().get("X-Exact").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_dispatcher_multiple_middleware_layers() {
+        struct AddHeaderMiddleware {
+            name: String,
+            value: String,
+        }
+
+        #[async_trait]
+        impl<E> Middleware<E> for AddHeaderMiddleware
+        where
+            E: Send + Sync + 'static,
+        {
+            async fn process(
+                &self,
+                ctx: Context<E>,
+                next: crate::core::Next<E>,
+            ) -> Result<Response, CoreError> {
+                let mut response = next.run(ctx).await?;
+                response.headers_mut().set(&self.name, &self.value).ok();
+                Ok(response)
+            }
+        }
+
+        let mut dispatcher = Dispatcher::new(Arc::new(()));
+
+        // Register multiple middleware layers
+        dispatcher.register_middleware(
+            AddHeaderMiddleware {
+                name: "X-Global".to_string(),
+                value: "all".to_string(),
+            },
+            None,
+        );
+
+        let opts = MiddlewareOptions::new().on("/api/*");
+        dispatcher.register_middleware(
+            AddHeaderMiddleware {
+                name: "X-API".to_string(),
+                value: "api".to_string(),
+            },
+            Some(opts),
+        );
+
+        let opts = MiddlewareOptions::new()
+            .for_method(Method::POST)
+            .on("/api/*");
+        dispatcher.register_middleware(
+            AddHeaderMiddleware {
+                name: "X-POST".to_string(),
+                value: "post".to_string(),
+            },
+            Some(opts),
+        );
+
+        // Register route
+        dispatcher
+            .register_route(Method::POST, "/api/users", |_ctx: Context<()>| async move {
+                Ok(Response::text("create"))
+            })
+            .unwrap();
+
+        // Test - should have all three headers
+        let req = create_test_request(Method::POST, "/api/users");
+        let response = dispatcher.dispatch(req).await.unwrap();
+        assert_eq!(response.headers().get("X-Global").unwrap(), "all");
+        assert_eq!(response.headers().get("X-API").unwrap(), "api");
+        assert_eq!(response.headers().get("X-POST").unwrap(), "post");
+    }
+
+    #[tokio::test]
+    async fn test_dispatcher_parameterized_pattern_middleware() {
+        struct AddHeaderMiddleware {
+            name: String,
+            value: String,
+        }
+
+        #[async_trait]
+        impl<E> Middleware<E> for AddHeaderMiddleware
+        where
+            E: Send + Sync + 'static,
+        {
+            async fn process(
+                &self,
+                ctx: Context<E>,
+                next: crate::core::Next<E>,
+            ) -> Result<Response, CoreError> {
+                let mut response = next.run(ctx).await?;
+                response.headers_mut().set(&self.name, &self.value).ok();
+                Ok(response)
+            }
+        }
+
+        let mut dispatcher = Dispatcher::new(Arc::new(()));
+
+        // Register middleware with parameterized pattern
+        let opts = MiddlewareOptions::new().on("/users/:id");
+        dispatcher.register_middleware(
+            AddHeaderMiddleware {
+                name: "X-User".to_string(),
+                value: "specific".to_string(),
+            },
+            Some(opts),
+        );
+
+        // Register routes
+        dispatcher
+            .register_route(Method::GET, "/users/:id", |_ctx: Context<()>| async move {
+                Ok(Response::text("user"))
+            })
+            .unwrap();
+
+        dispatcher
+            .register_route(Method::GET, "/posts/:id", |_ctx: Context<()>| async move {
+                Ok(Response::text("post"))
+            })
+            .unwrap();
+
+        // Test /users/123 - should have middleware header
+        let req = create_test_request(Method::GET, "/users/123");
+        let response = dispatcher.dispatch(req).await.unwrap();
+        assert_eq!(response.headers().get("X-User").unwrap(), "specific");
+
+        // Test /posts/456 - should NOT have middleware header
+        let req = create_test_request(Method::GET, "/posts/456");
+        let response = dispatcher.dispatch(req).await.unwrap();
+        assert!(response.headers().get("X-User").is_none());
     }
 }

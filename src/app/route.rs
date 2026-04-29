@@ -32,14 +32,14 @@ where
     ///
     /// let mut app = App::new();
     /// app.route("/api")
-    ///     .use_middleware(async |ctx: Context, next: Next| {
+    ///     .r#use(async |ctx: Context, next: Next| {
     ///         // Auth middleware
     ///         next.run(ctx).await
     ///     })
     ///     .get(async |c: Context| c.text("API endpoint"));
     /// ```
-    pub fn use_middleware(self, middleware: impl Middleware<E>) -> Self {
-        self.app.use_middleware(&self.path, middleware);
+    pub fn r#use(self, middleware: impl Middleware<E>) -> Self {
+        self.app.r#use(middleware);
         self
     }
 
