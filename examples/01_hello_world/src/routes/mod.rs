@@ -21,6 +21,9 @@ pub fn configure_routes(app: &mut App<AppEnv>) {
     // Home route
     app.get("/", home_controller::index);
 
+    // OS Info route (similar to Node.js example)
+    app.get("/osinfo", home_controller::osinfo);
+
     // Configure domain-specific routes
     configure_user_routes(app);
     configure_admin_routes(app);
