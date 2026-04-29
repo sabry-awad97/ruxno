@@ -123,6 +123,12 @@ pub enum CoreError {
     #[error("Failed to parse request body: {0}")]
     BodyParseError(String),
 
+    /// Payload too large (413)
+    ///
+    /// Returned when request body exceeds size limits.
+    #[error("Payload too large: {0}")]
+    PayloadTooLarge(String),
+
     /// Internal error (500)
     ///
     /// Returned for unexpected framework errors or bugs.
@@ -162,6 +168,7 @@ impl CoreError {
             CoreError::MissingParameter(_) => 400,
             CoreError::InvalidParameter { .. } => 400,
             CoreError::BodyParseError(_) => 400,
+            CoreError::PayloadTooLarge(_) => 413,
             CoreError::InvalidPattern(_) => 500,
             CoreError::DuplicateRoute { .. } => 500,
             CoreError::Internal(_) => 500,
@@ -247,6 +254,11 @@ impl CoreError {
     /// Create a "body parse error"
     pub fn body_parse_error(message: impl Into<String>) -> Self {
         CoreError::BodyParseError(message.into())
+    }
+
+    /// Create a "payload too large" error
+    pub fn payload_too_large(message: impl Into<String>) -> Self {
+        CoreError::PayloadTooLarge(message.into())
     }
 
     /// Create an "internal error"
