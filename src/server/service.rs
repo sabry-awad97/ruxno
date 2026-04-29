@@ -69,7 +69,7 @@ where
     /// Handle a single HTTP request
     ///
     /// This is the core request handling method that:
-    /// 1. Converts Hyper request to domain request (with body size limits)
+    /// 1. Converts Hyper request to domain request (with body size and header limits)
     /// 2. Dispatches through the App (routing + middleware + handler)
     /// 3. Converts domain response back to Hyper response
     /// 4. Handles errors by converting them to HTTP error responses
@@ -78,6 +78,7 @@ where
     ///
     /// * `req` - The incoming Hyper HTTP request
     /// * `max_body_size` - Maximum allowed body size in bytes
+    /// * `max_headers` - Maximum allowed number of headers
     ///
     /// # Returns
     ///
@@ -87,18 +88,19 @@ where
     /// # Examples
     ///
     /// ```rust,ignore
-    /// let response = service.handle(hyper_request, 1024 * 1024).await; // 1MB limit
+    /// let response = service.handle(hyper_request, 1024 * 1024, 100).await; // 1MB, 100 headers
     /// ```
     pub async fn handle(
         &self,
         req: hyper::Request<Incoming>,
         max_body_size: usize,
+        max_headers: usize,
     ) -> Result<hyper::Response<http_body_util::Full<Bytes>>, std::convert::Infallible> {
-        // Convert Hyper request to domain request with size limits
-        let domain_req = match from_hyper_request(req, max_body_size).await {
+        // Convert Hyper request to domain request with size and header limits
+        let domain_req = match from_hyper_request(req, max_body_size, max_headers).await {
             Ok(req) => req,
             Err(err) => {
-                // Body size limit exceeded or other conversion error
+                // Body size limit exceeded, too many headers, or other conversion error
                 let error_response = error_to_response(err);
                 return Ok(to_hyper_response(error_response));
             }
@@ -141,6 +143,7 @@ fn error_to_response(err: CoreError) -> crate::domain::Response {
         CoreError::MethodNotAllowed(_) => StatusCode::METHOD_NOT_ALLOWED,
         CoreError::BadRequest(_) => StatusCode::BAD_REQUEST,
         CoreError::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
+        CoreError::RequestHeaderFieldsTooLarge(_) => StatusCode::from_u16(431).unwrap(),
         CoreError::InvalidPattern(_)
         | CoreError::DuplicateRoute { .. }
         | CoreError::MissingParameter(_)
@@ -287,5 +290,12 @@ mod tests {
         let err = CoreError::Custom("Custom error".to_string());
         let response = error_to_response(err);
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn test_error_mapping_request_header_fields_too_large() {
+        let err = CoreError::RequestHeaderFieldsTooLarge("Too many headers".to_string());
+        let response = error_to_response(err);
+        assert_eq!(response.status(), StatusCode::from_u16(431).unwrap());
     }
 }

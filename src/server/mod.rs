@@ -326,6 +326,7 @@ where
                     let io = TokioIo::new(stream);
                     let service = service.clone();
                     let max_body_size = self.config.max_body_size();
+                    let max_headers = self.config.max_headers();
                     let request_timeout = self.config.request_timeout();
 
                     // Spawn a task to handle this connection
@@ -335,7 +336,7 @@ where
 
                         let service_fn = service_fn(move |req: hyper::Request<Incoming>| {
                             let service = service.clone();
-                            async move { service.handle(req, max_body_size).await }
+                            async move { service.handle(req, max_body_size, max_headers).await }
                         });
 
                         let connection = http1::Builder::new()

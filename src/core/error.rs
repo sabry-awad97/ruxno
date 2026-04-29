@@ -129,6 +129,12 @@ pub enum CoreError {
     #[error("Payload too large: {0}")]
     PayloadTooLarge(String),
 
+    /// Request header fields too large (431)
+    ///
+    /// Returned when request has too many headers or headers are too large.
+    #[error("Request header fields too large: {0}")]
+    RequestHeaderFieldsTooLarge(String),
+
     /// Internal error (500)
     ///
     /// Returned for unexpected framework errors or bugs.
@@ -169,6 +175,7 @@ impl CoreError {
             CoreError::InvalidParameter { .. } => 400,
             CoreError::BodyParseError(_) => 400,
             CoreError::PayloadTooLarge(_) => 413,
+            CoreError::RequestHeaderFieldsTooLarge(_) => 431,
             CoreError::InvalidPattern(_) => 500,
             CoreError::DuplicateRoute { .. } => 500,
             CoreError::Internal(_) => 500,
@@ -259,6 +266,11 @@ impl CoreError {
     /// Create a "payload too large" error
     pub fn payload_too_large(message: impl Into<String>) -> Self {
         CoreError::PayloadTooLarge(message.into())
+    }
+
+    /// Create a "request header fields too large" error
+    pub fn request_header_fields_too_large(message: impl Into<String>) -> Self {
+        CoreError::RequestHeaderFieldsTooLarge(message.into())
     }
 
     /// Create an "internal error"
@@ -436,11 +448,24 @@ mod tests {
         assert!(CoreError::method_not_allowed("/").is_client_error());
         assert!(CoreError::bad_request("").is_client_error());
         assert!(CoreError::missing_parameter("id").is_client_error());
+        assert!(CoreError::payload_too_large("").is_client_error());
+        assert!(CoreError::request_header_fields_too_large("").is_client_error());
 
         // Server errors (5xx)
         assert!(CoreError::internal("").is_server_error());
         assert!(CoreError::invalid_pattern("").is_server_error());
         assert!(CoreError::duplicate_route("GET", "/").is_server_error());
         assert!(CoreError::custom("").is_server_error());
+    }
+
+    #[test]
+    fn test_request_header_fields_too_large_error() {
+        let error = CoreError::request_header_fields_too_large("Too many headers");
+        assert_eq!(error.status_code(), 431);
+        assert!(error.is_client_error());
+        assert_eq!(
+            error.to_string(),
+            "Request header fields too large: Too many headers"
+        );
     }
 }
