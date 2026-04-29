@@ -455,6 +455,7 @@ mod tests {
     use crate::http::Headers;
     use async_trait::async_trait;
     use bytes::Bytes;
+    use http::Version;
     use std::collections::HashMap;
 
     // Helper to create a minimal test request
@@ -462,6 +463,7 @@ mod tests {
         Request::new(
             method,
             path.parse().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             Headers::new(),
             Bytes::new(),

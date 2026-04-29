@@ -160,13 +160,14 @@ mod tests {
     use super::*;
     use crate::http::Headers;
     use bytes::Bytes;
-    use http::{Method, Uri};
+    use http::{Method, Uri, Version};
     use std::collections::HashMap;
 
     fn create_request_with_headers(headers: Headers) -> Request {
         Request::new(
             Method::GET,
             Uri::from_static("http://localhost/test"),
+            Version::HTTP_11,
             HashMap::new(), // Empty query params
             headers,
             Bytes::new(),
@@ -176,8 +177,8 @@ mod tests {
     #[test]
     fn test_detect_websocket() {
         let mut headers = Headers::new();
-        headers.set("upgrade", "websocket");
-        headers.set("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==");
+        let _ = headers.set("upgrade", "websocket");
+        let _ = headers.set("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==");
 
         let req = create_request_with_headers(headers);
         assert_eq!(UpgradeDetector::detect(&req), Some(UpgradeType::WebSocket));

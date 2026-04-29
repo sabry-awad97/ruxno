@@ -87,6 +87,7 @@ mod tests {
     use crate::domain::{Request, ResponseBody};
     use crate::http::Headers;
     use bytes::Bytes;
+    use http::Version;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -95,6 +96,7 @@ mod tests {
         Request::new(
             Method::GET,
             "/test".parse().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             Headers::new(),
             Bytes::new(),

@@ -482,6 +482,7 @@ fn extract_ip<E>(ctx: &Context<E>) -> IpAddr {
 mod tests {
     use super::*;
     use bytes::Bytes;
+    use hyper::Version;
     use ruxno::core::Method;
     use ruxno::domain::Request;
     use ruxno::http::Headers;
@@ -491,6 +492,7 @@ mod tests {
         let req = Request::new(
             Method::GET,
             "/".parse().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             headers,
             Bytes::new(),

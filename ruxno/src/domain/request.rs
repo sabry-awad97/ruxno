@@ -38,7 +38,7 @@ use crate::core::{CoreError, Method};
 use crate::http::Headers;
 use crate::routing::Params;
 use bytes::Bytes;
-use http::Uri;
+use http::{Uri, Version};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -92,6 +92,9 @@ struct RequestInner {
     /// Request URI (parsed HTTP URI with path, query, etc.)
     uri: Uri,
 
+    /// HTTP version
+    version: Version,
+
     /// Query parameters (parsed from URI)
     query: HashMap<String, String>,
 
@@ -130,6 +133,7 @@ impl Request {
     ///
     /// - `method`: HTTP method
     /// - `uri`: HTTP URI (includes path and query string)
+    /// - `version`: HTTP version
     /// - `query`: Parsed query parameters
     /// - `headers`: Request headers (Headers wrapper)
     /// - `body`: Raw body bytes
@@ -141,6 +145,7 @@ impl Request {
     /// let req = Request::new(
     ///     Method::GET,
     ///     uri,
+    ///     Version::HTTP_11,
     ///     HashMap::from([("page".to_string(), "1".to_string())]),
     ///     Headers::new(),
     ///     Bytes::new(),
@@ -149,6 +154,7 @@ impl Request {
     pub fn new(
         method: Method,
         uri: Uri,
+        version: Version,
         query: HashMap<String, String>,
         headers: Headers,
         body: Bytes,
@@ -157,6 +163,7 @@ impl Request {
             inner: Arc::new(RequestInner {
                 method,
                 uri,
+                version,
                 query,
                 headers,
                 body,
@@ -189,6 +196,7 @@ impl Request {
             inner: Arc::new(RequestInner {
                 method: self.inner.method.clone(),
                 uri: self.inner.uri.clone(),
+                version: self.inner.version,
                 query: self.inner.query.clone(),
                 headers: self.inner.headers.clone(),
                 body: self.inner.body.clone(),
@@ -222,6 +230,19 @@ impl Request {
     /// ```
     pub fn uri(&self) -> &Uri {
         &self.inner.uri
+    }
+
+    /// Get HTTP version
+    ///
+    /// Returns the HTTP version used for this request (e.g., HTTP/1.1, HTTP/2).
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// assert_eq!(req.version(), Version::HTTP_11);
+    /// ```
+    pub fn version(&self) -> Version {
+        self.inner.version
     }
 
     /// Get request path (without query string)
@@ -469,6 +490,7 @@ mod tests {
         Request::new(
             Method::GET,
             "/api/users?page=1&limit=10".parse().unwrap(),
+            Version::HTTP_11,
             HashMap::from([
                 ("page".to_string(), "1".to_string()),
                 ("limit".to_string(), "10".to_string()),
@@ -489,6 +511,12 @@ mod tests {
         let req = create_test_request();
         assert_eq!(req.uri().path(), "/api/users");
         assert_eq!(req.uri().query(), Some("page=1&limit=10"));
+    }
+
+    #[test]
+    fn test_request_version() {
+        let req = create_test_request();
+        assert_eq!(req.version(), Version::HTTP_11);
     }
 
     #[test]
@@ -532,6 +560,7 @@ mod tests {
         let req = Request::new(
             Method::GET,
             "/".parse().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             headers,
             Bytes::new(),
@@ -631,6 +660,7 @@ mod tests {
         let req = Request::new(
             Method::POST,
             "/api/users".parse().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             Headers::new(),
             Bytes::from("invalid json"),
@@ -645,6 +675,7 @@ mod tests {
         let req = Request::new(
             Method::POST,
             "/api/echo".parse().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             Headers::new(),
             Bytes::from("Hello, World!"),
@@ -663,6 +694,7 @@ mod tests {
         let req = Request::new(
             Method::POST,
             "/api/login".parse().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             Headers::new(),
             Bytes::from("email=john%40example.com&password=secret123"),

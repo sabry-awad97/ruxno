@@ -229,7 +229,7 @@ mod tests {
     use crate::domain::Request;
     use crate::http::Headers;
     use bytes::Bytes;
-    use http::{Method, Uri};
+    use http::{Method, Uri, Version};
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -243,6 +243,7 @@ mod tests {
         let request = Request::new(
             Method::GET,
             Uri::from_static("http://localhost/ws"),
+            Version::HTTP_11,
             HashMap::new(),
             headers,
             Bytes::new(),
@@ -273,6 +274,7 @@ mod tests {
         let request = Request::new(
             Method::GET,
             Uri::from_static("http://localhost/ws"),
+            Version::HTTP_11,
             HashMap::new(),
             headers,
             Bytes::new(),
@@ -329,6 +331,7 @@ mod tests {
         let request = Request::new(
             Method::GET,
             Uri::from_static("http://localhost/ws"),
+            Version::HTTP_11,
             HashMap::new(),
             headers,
             Bytes::new(),
@@ -365,6 +368,7 @@ mod tests {
             let request = Request::new(
                 Method::GET,
                 Uri::from_static("http://localhost/ws"),
+                Version::HTTP_11,
                 HashMap::new(),
                 headers,
                 Bytes::new(),
@@ -400,6 +404,7 @@ mod tests {
         let request = Request::new(
             Method::GET,
             Uri::from_static("http://localhost/ws"),
+            Version::HTTP_11,
             HashMap::new(),
             headers,
             Bytes::new(),
@@ -427,6 +432,7 @@ mod tests {
         let request = Request::new(
             Method::GET,
             Uri::from_static("http://localhost/ws"),
+            Version::HTTP_11,
             HashMap::new(),
             headers,
             Bytes::new(),
@@ -454,6 +460,7 @@ mod tests {
         let request = Request::new(
             Method::GET,
             Uri::from_static("http://localhost/ws"),
+            Version::HTTP_11,
             HashMap::new(),
             headers,
             Bytes::new(),
@@ -485,6 +492,7 @@ mod tests {
         let request = Request::new(
             Method::GET,
             Uri::from_static("http://localhost/ws"),
+            Version::HTTP_11,
             HashMap::new(),
             headers,
             Bytes::new(),
@@ -515,6 +523,7 @@ mod tests {
             let request = Request::new(
                 Method::GET,
                 Uri::from_static("http://localhost/ws"),
+                Version::HTTP_11,
                 HashMap::new(),
                 headers,
                 Bytes::new(),
@@ -542,6 +551,7 @@ mod tests {
         let request = Request::new(
             Method::GET,
             Uri::from_static("http://localhost/ws"),
+            Version::HTTP_11,
             HashMap::new(),
             headers,
             Bytes::new(),
@@ -565,6 +575,7 @@ mod tests {
         let request = Request::new(
             Method::GET,
             Uri::from_static("http://localhost/ws"),
+            Version::HTTP_11,
             HashMap::new(),
             headers,
             Bytes::new(),

@@ -279,13 +279,14 @@ mod tests {
 
     use super::*;
     use bytes::Bytes;
-    use http::Uri;
+    use http::{Uri, Version};
     use std::collections::HashMap;
 
     fn create_test_context() -> Context<()> {
         let req = Request::new(
             crate::core::Method::GET,
             "/api/users".parse::<Uri>().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             Headers::new(),
             Bytes::new(),
@@ -308,6 +309,7 @@ mod tests {
         let req = Request::new(
             crate::core::Method::GET,
             "/".parse::<Uri>().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             Headers::new(),
             Bytes::new(),
@@ -463,6 +465,7 @@ mod tests {
         let req = Request::new(
             crate::core::Method::GET,
             "/".parse::<Uri>().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             Headers::new(),
             Bytes::new(),

@@ -440,6 +440,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hyper::Version;
     use std::time::Duration;
     use tokio::time::sleep;
 
@@ -496,6 +497,7 @@ mod tests {
         let req = Request::new(
             Method::GET,
             "/test-health".parse().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             Headers::new(),
             bytes::Bytes::new(),
@@ -528,6 +530,7 @@ mod tests {
         let req = Request::new(
             Method::GET,
             "/health".parse().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             Headers::new(),
             bytes::Bytes::new(),
@@ -559,6 +562,7 @@ mod tests {
         let req = Request::new(
             Method::GET,
             "/health".parse().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             Headers::new(),
             bytes::Bytes::new(),

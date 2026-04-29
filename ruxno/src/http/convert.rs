@@ -126,6 +126,7 @@ pub async fn from_hyper_request(
     Ok(Request::new(
         parts.method,
         parts.uri,
+        parts.version,
         query,
         headers,
         body_bytes,

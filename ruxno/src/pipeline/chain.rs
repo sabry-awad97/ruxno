@@ -39,9 +39,8 @@
 //! let response = composed.handle(ctx).await?;
 //! ```
 
-use crate::core::{BoxedHandler, CoreError, Middleware, Next};
-use crate::domain::{Context, Response};
-use async_trait::async_trait;
+use crate::core::{BoxedHandler, Middleware, Next};
+use crate::domain::Context;
 use std::sync::Arc;
 
 /// Middleware chain builder
@@ -165,10 +164,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{Method, StatusCode};
+    use crate::core::{CoreError, Method, StatusCode};
     use crate::domain::{Request, ResponseBody};
     use crate::http::Headers;
+    use crate::Response;
+    use async_trait::async_trait;
     use bytes::Bytes;
+    use http::Version;
     use std::collections::HashMap;
 
     // Helper to create a minimal test request (following pattern from domain/request.rs)
@@ -176,6 +178,7 @@ mod tests {
         Request::new(
             Method::GET,
             "/test".parse().unwrap(),
+            Version::HTTP_11,
             HashMap::new(),
             Headers::new(),
             Bytes::new(),

@@ -233,6 +233,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use http::Version;
+
     use super::*;
 
     #[test]
@@ -342,6 +344,7 @@ mod tests {
         let req = crate::domain::Request::new(
             Method::GET,
             "/api/users".parse().unwrap(),
+            Version::HTTP_11,
             std::collections::HashMap::new(),
             crate::http::Headers::new(),
             bytes::Bytes::new(),
@@ -353,6 +356,7 @@ mod tests {
         let req = crate::domain::Request::new(
             Method::GET,
             "/public".parse().unwrap(),
+            Version::HTTP_11,
             std::collections::HashMap::new(),
             crate::http::Headers::new(),
             bytes::Bytes::new(),
@@ -408,6 +412,7 @@ mod tests {
         let req = crate::domain::Request::new(
             Method::POST,
             "/api/users".parse().unwrap(),
+            Version::HTTP_11,
             std::collections::HashMap::new(),
             crate::http::Headers::new(),
             bytes::Bytes::new(),
@@ -419,6 +424,7 @@ mod tests {
         let req = crate::domain::Request::new(
             Method::GET,
             "/api/users".parse().unwrap(),
+            Version::HTTP_11,
             std::collections::HashMap::new(),
             crate::http::Headers::new(),
             bytes::Bytes::new(),

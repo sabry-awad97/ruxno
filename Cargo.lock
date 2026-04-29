@@ -2213,6 +2213,7 @@ dependencies = [
  "chrono",
  "flate2",
  "governor",
+ "hyper",
  "jsonwebtoken",
  "real-ip",
  "redis",
