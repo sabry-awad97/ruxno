@@ -20,6 +20,7 @@
 //! let hyper_res = to_hyper_response(domain_res);
 //! ```
 
+use crate::core::CoreError;
 use crate::domain::{Request, Response};
 use crate::http::Headers;
 use bytes::Bytes;
@@ -27,40 +28,78 @@ use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use std::collections::HashMap;
 
-/// Convert Hyper request to domain request
+/// Convert Hyper request to domain request with body size limits
 ///
 /// This function performs a lossless conversion from Hyper's request type
 /// to Ruxno's domain `Request`. It:
 ///
+/// - Validates Content-Length header against max_body_size
+/// - Applies size limits before buffering body
 /// - Extracts method, URI, and headers
-/// - Buffers the entire body into memory
 /// - Parses query parameters from the URI
 /// - Creates a domain `Request` with all data
 ///
 /// # Arguments
 ///
 /// * `req` - The Hyper HTTP request to convert
+/// * `max_body_size` - Maximum allowed body size in bytes
 ///
 /// # Returns
 ///
-/// Returns a domain `Request` with buffered body.
+/// Returns a domain `Request` with buffered body, or an error if body is too large.
+///
+/// # Errors
+///
+/// Returns `CoreError::PayloadTooLarge` if:
+/// - Content-Length header exceeds max_body_size
+/// - Actual body size exceeds max_body_size during reading
 ///
 /// # Examples
 ///
 /// ```rust,ignore
 /// let hyper_req = hyper::Request::new(hyper::body::Incoming::default());
-/// let domain_req = from_hyper_request(hyper_req).await;
+/// let domain_req = from_hyper_request(hyper_req, 1024 * 1024).await?; // 1MB limit
 /// ```
-pub async fn from_hyper_request(req: hyper::Request<Incoming>) -> Request {
+pub async fn from_hyper_request(
+    req: hyper::Request<Incoming>,
+    max_body_size: usize,
+) -> Result<Request, CoreError> {
     // Extract parts from Hyper request
     let (parts, body) = req.into_parts();
 
-    // Buffer the body
-    let body_bytes = body
+    // Check Content-Length header early to reject oversized requests before reading
+    if let Some(content_length) = parts.headers.get(hyper::header::CONTENT_LENGTH) {
+        if let Ok(length_str) = content_length.to_str() {
+            if let Ok(length) = length_str.parse::<usize>() {
+                if length > max_body_size {
+                    return Err(CoreError::payload_too_large(format!(
+                        "Request body size {} bytes exceeds maximum allowed size {} bytes",
+                        length, max_body_size
+                    )));
+                }
+            }
+        }
+    }
+
+    // Apply size limit to body stream using Limited wrapper
+    let limited_body = http_body_util::Limited::new(body, max_body_size);
+
+    // Buffer the body with size limit enforcement
+    let body_bytes = limited_body
         .collect()
         .await
         .map(|collected| collected.to_bytes())
-        .unwrap_or_default();
+        .map_err(|e| {
+            // Check if error is due to size limit
+            if e.to_string().contains("length limit exceeded") {
+                CoreError::payload_too_large(format!(
+                    "Request body exceeds maximum allowed size of {} bytes",
+                    max_body_size
+                ))
+            } else {
+                CoreError::bad_request(format!("Failed to read request body: {}", e))
+            }
+        })?;
 
     // Parse query parameters from URI
     let query = parse_query_params(parts.uri.query());
@@ -69,7 +108,13 @@ pub async fn from_hyper_request(req: hyper::Request<Incoming>) -> Request {
     let headers = Headers::from(parts.headers);
 
     // Create domain request
-    Request::new(parts.method, parts.uri, query, headers, body_bytes)
+    Ok(Request::new(
+        parts.method,
+        parts.uri,
+        query,
+        headers,
+        body_bytes,
+    ))
 }
 
 /// Convert domain response to Hyper response
@@ -229,9 +274,8 @@ mod tests {
 
         // Convert Full body to Incoming (this is a simplification for testing)
         let (_parts, _body) = hyper_req.into_parts();
-        let _body_stream = http_body_util::BodyExt::map_err(_body, |_| {
-            std::io::Error::new(std::io::ErrorKind::Other, "body error")
-        });
+        let _body_stream =
+            http_body_util::BodyExt::map_err(_body, |_| std::io::Error::other("body error"));
         let _incoming_body = http_body_util::BodyExt::boxed(_body_stream);
 
         // For testing, we'll create a simpler test

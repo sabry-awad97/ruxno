@@ -69,7 +69,7 @@ where
     /// Handle a single HTTP request
     ///
     /// This is the core request handling method that:
-    /// 1. Converts Hyper request to domain request
+    /// 1. Converts Hyper request to domain request (with body size limits)
     /// 2. Dispatches through the App (routing + middleware + handler)
     /// 3. Converts domain response back to Hyper response
     /// 4. Handles errors by converting them to HTTP error responses
@@ -77,6 +77,7 @@ where
     /// # Arguments
     ///
     /// * `req` - The incoming Hyper HTTP request
+    /// * `max_body_size` - Maximum allowed body size in bytes
     ///
     /// # Returns
     ///
@@ -86,14 +87,22 @@ where
     /// # Examples
     ///
     /// ```rust,ignore
-    /// let response = service.handle(hyper_request).await;
+    /// let response = service.handle(hyper_request, 1024 * 1024).await; // 1MB limit
     /// ```
     pub async fn handle(
         &self,
         req: hyper::Request<Incoming>,
+        max_body_size: usize,
     ) -> Result<hyper::Response<http_body_util::Full<Bytes>>, std::convert::Infallible> {
-        // Convert Hyper request to domain request
-        let domain_req = from_hyper_request(req).await;
+        // Convert Hyper request to domain request with size limits
+        let domain_req = match from_hyper_request(req, max_body_size).await {
+            Ok(req) => req,
+            Err(err) => {
+                // Body size limit exceeded or other conversion error
+                let error_response = error_to_response(err);
+                return Ok(to_hyper_response(error_response));
+            }
+        };
 
         // Dispatch through app
         let domain_res = match self.app.dispatch(domain_req).await {
@@ -153,9 +162,7 @@ fn error_to_response(err: CoreError) -> crate::domain::Response {
 mod tests {
     use super::*;
     use crate::app::App;
-    use crate::core::{Method, StatusCode};
-    use crate::domain::{Context, Response};
-    use http_body_util::BodyExt;
+    use crate::core::StatusCode;
 
     #[tokio::test]
     async fn test_service_creation() {

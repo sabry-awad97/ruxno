@@ -276,12 +276,13 @@ where
 
                     let io = TokioIo::new(stream);
                     let service = service.clone();
+                    let max_body_size = self.config.max_body_size();
 
                     // Spawn a task to handle this connection
                     tokio::spawn(async move {
                         let service_fn = service_fn(move |req: hyper::Request<Incoming>| {
                             let service = service.clone();
-                            async move { service.handle(req).await }
+                            async move { service.handle(req, max_body_size).await }
                         });
 
                         if let Err(e) = http1::Builder::new()
