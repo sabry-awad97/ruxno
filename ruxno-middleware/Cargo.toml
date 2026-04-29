@@ -51,6 +51,9 @@ jsonwebtoken = { version = "9.3.1", optional = true }
 # Logging (optional)
 tracing = { version = "0.1", optional = true }
 
+# Health check dependencies (optional)
+chrono = { version = "0.4", features = ["serde"], optional = true }
+
 [dev-dependencies]
 tokio-test = "0.4.5"
 
@@ -68,6 +71,7 @@ auth = ["jsonwebtoken"]
 logger = ["tracing"]
 security-headers = []
 pretty-json = []
+health-check = ["chrono"]
 
 # Convenience feature bundles
 full = [
@@ -78,8 +82,9 @@ full = [
     "logger",
     "security-headers",
     "pretty-json",
+    "health-check",
 ]
-production = ["rate-limit", "cors", "security-headers"]
+production = ["rate-limit", "cors", "security-headers", "health-check"]
 
 [lib]
 name = "ruxno_middleware"

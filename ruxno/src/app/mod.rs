@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 /// Application - Main facade
 pub struct App<E = ()> {
-    dispatcher: Dispatcher<E>,
+    dispatcher: Arc<Dispatcher<E>>,
     env: Arc<E>,
 }
 
@@ -36,7 +36,7 @@ where
     pub fn with_env(env: E) -> Self {
         let env = Arc::new(env);
         Self {
-            dispatcher: Dispatcher::new(Arc::clone(&env)),
+            dispatcher: Arc::new(Dispatcher::new(Arc::clone(&env))),
             env,
         }
     }
@@ -61,8 +61,8 @@ where
 
     /// Register route (internal helper for Route builder)
     pub(crate) fn register_route(&mut self, method: Method, path: &str, handler: impl Handler<E>) {
-        if let Err(e) = self
-            .dispatcher
+        if let Err(e) = Arc::get_mut(&mut self.dispatcher)
+            .expect("Dispatcher should be uniquely owned during route registration")
             .register_route(method.clone(), path, handler)
         {
             panic!(
@@ -137,7 +137,9 @@ where
     /// });
     /// ```
     pub fn r#use(&mut self, middleware: impl Middleware<E>) -> &mut Self {
-        self.dispatcher.register_middleware(middleware, None);
+        Arc::get_mut(&mut self.dispatcher)
+            .expect("Dispatcher should be uniquely owned during middleware registration")
+            .register_middleware(middleware, None);
         self
     }
 
@@ -174,7 +176,9 @@ where
         middleware: impl Middleware<E>,
     ) -> &mut Self {
         let opts = MiddlewareOptions::new().for_method(method).on(pattern);
-        self.dispatcher.register_middleware(middleware, Some(opts));
+        Arc::get_mut(&mut self.dispatcher)
+            .expect("Dispatcher should be uniquely owned during middleware registration")
+            .register_middleware(middleware, Some(opts));
         self
     }
 
@@ -214,7 +218,7 @@ where
 
     /// Dispatch request (internal)
     pub(crate) async fn dispatch(&self, req: Request) -> Result<Response, CoreError> {
-        self.dispatcher.dispatch(req).await
+        Arc::clone(&self.dispatcher).dispatch(req).await
     }
 }
 

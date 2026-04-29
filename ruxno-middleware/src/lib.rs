@@ -16,6 +16,7 @@
 //! - **logger**: Request/response logging
 //! - **security-headers**: Security headers (HSTS, CSP, etc.)
 //! - **pretty-json**: Pretty-print JSON responses with configurable indentation
+//! - **health-check**: Health check endpoints for monitoring and load balancers
 //!
 //! ## Usage
 //!
@@ -107,6 +108,9 @@ pub mod security_headers;
 #[cfg(feature = "pretty-json")]
 pub mod pretty_json;
 
+#[cfg(feature = "health-check")]
+pub mod health_check;
+
 // Re-exports for convenience
 #[cfg(feature = "rate-limit")]
 pub use rate_limit::{
@@ -130,3 +134,9 @@ pub use security_headers::SecurityHeadersMiddleware;
 
 #[cfg(feature = "pretty-json")]
 pub use pretty_json::{pretty_json, PrettyJsonMiddleware};
+
+#[cfg(feature = "health-check")]
+pub use health_check::{
+    health_check, health_check_with_config, simple_health_check, HealthCheckConfig,
+    HealthCheckMiddleware, HealthCheckResult, HealthResponse, HealthStatus,
+};

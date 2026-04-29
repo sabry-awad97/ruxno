@@ -32,10 +32,13 @@ async fn main() {
     // Test 1: GET /
     test_endpoint(&client, "GET", "/", None, "Home endpoint").await;
 
-    // Test 2: GET /users
+    // Test 2: GET /health
+    test_endpoint(&client, "GET", "/health", None, "Health check").await;
+
+    // Test 3: GET /users
     test_endpoint(&client, "GET", "/users", None, "List users").await;
 
-    // Test 3: POST /users
+    // Test 4: POST /users
     test_endpoint(
         &client,
         "POST",
@@ -48,10 +51,10 @@ async fn main() {
     )
     .await;
 
-    // Test 4: GET /users/:id
+    // Test 5: GET /users/:id
     test_endpoint(&client, "GET", "/users/123", None, "Get user by ID").await;
 
-    // Test 5: PUT /users/:id
+    // Test 6: PUT /users/:id
     test_endpoint(
         &client,
         "PUT",
@@ -64,13 +67,13 @@ async fn main() {
     )
     .await;
 
-    // Test 6: DELETE /users/:id
+    // Test 7: DELETE /users/:id
     test_endpoint(&client, "DELETE", "/users/456", None, "Delete user").await;
 
-    // Test 7: GET /admin
+    // Test 8: GET /admin
     test_endpoint(&client, "GET", "/admin", None, "Admin dashboard").await;
 
-    // Test 8: POST /admin
+    // Test 9: POST /admin
     test_endpoint(
         &client,
         "POST",
@@ -85,7 +88,7 @@ async fn main() {
     )
     .await;
 
-    // Test 9: GET /api/status
+    // Test 10: GET /api/status
     test_endpoint(&client, "GET", "/api/status", None, "API status").await;
 
     println!();

@@ -30,7 +30,7 @@
 //! let response = dispatcher.dispatch(request).await?;
 //! ```
 
-use crate::core::{BoxedHandler, CoreError, Handler, Method, Middleware};
+use crate::core::{BoxedHandler, CoreError, Handler, Method, Middleware, Next};
 use crate::domain::{Context, Request, Response};
 use crate::pipeline::MiddlewareChain;
 use crate::routing::{Pattern, Router};
@@ -168,7 +168,10 @@ pub struct Dispatcher<E = ()> {
     /// Router for route matching
     router: Router<E>,
 
-    /// Middleware entries with optional filters
+    /// Global middleware entries (run before routing)
+    global_middleware: Vec<Arc<dyn Middleware<E>>>,
+
+    /// Route-specific middleware entries with optional filters
     middleware_entries: Vec<MiddlewareEntry<E>>,
 
     /// Environment for dependency injection
@@ -193,6 +196,7 @@ where
     pub fn new(env: Arc<E>) -> Self {
         Self {
             router: Router::new(),
+            global_middleware: Vec::new(),
             middleware_entries: Vec::new(),
             env,
         }
@@ -257,21 +261,18 @@ where
 
     /// Register middleware with optional filters
     ///
-    /// This is the unified middleware registration method that supports:
-    /// - Global middleware (no options)
-    /// - Path-specific middleware (with pattern)
-    /// - Method-specific middleware (with method)
-    /// - Method + path-specific middleware (with both)
+    /// This method supports two types of middleware:
+    /// - **Global middleware** (no options): Runs before routing, can intercept any request
+    /// - **Route-specific middleware** (with options): Runs after routing, attached to matching routes
     ///
     /// Middleware are applied in the order they're registered.
-    ///
-    /// **Important**: Middleware must be registered *before* routes for them
-    /// to be included in the route's pre-computed chain.
     ///
     /// # Arguments
     ///
     /// - `middleware`: Middleware to register
     /// - `options`: Optional filters (method, pattern, or both)
+    ///   - `None`: Global middleware (runs before routing)
+    ///   - `Some(opts)`: Route-specific middleware (runs after routing)
     ///
     /// # Examples
     ///
@@ -280,16 +281,13 @@ where
     ///
     /// let mut dispatcher = Dispatcher::new(Arc::new(()));
     ///
-    /// // Global middleware (no filters)
+    /// // Global middleware (runs before routing)
+    /// dispatcher.register_middleware(health_check, None);
     /// dispatcher.register_middleware(logger, None);
     ///
-    /// // Path-specific middleware
+    /// // Route-specific middleware (runs after routing)
     /// let opts = MiddlewareOptions::new().on("/api/*");
     /// dispatcher.register_middleware(auth, Some(opts));
-    ///
-    /// // Method-specific middleware
-    /// let opts = MiddlewareOptions::new().for_method(Method::POST);
-    /// dispatcher.register_middleware(validator, Some(opts));
     ///
     /// // Method + path-specific middleware
     /// let opts = MiddlewareOptions::new()
@@ -302,29 +300,40 @@ where
         middleware: impl Middleware<E>,
         options: Option<MiddlewareOptions>,
     ) {
-        let options = options.unwrap_or_default();
+        match options {
+            // Global middleware: no filters, runs before routing
+            None => {
+                self.global_middleware.push(Arc::new(middleware));
+            }
+            // Route-specific middleware: has filters, runs after routing
+            Some(options) => {
+                // Parse pattern if provided
+                let parsed_pattern = options
+                    .pattern
+                    .as_ref()
+                    .and_then(|p| Pattern::parse(p).ok());
 
-        // Parse pattern if provided
-        let parsed_pattern = options
-            .pattern
-            .as_ref()
-            .and_then(|p| Pattern::parse(p).ok());
-
-        self.middleware_entries.push(MiddlewareEntry {
-            method: options.method,
-            pattern: parsed_pattern,
-            middleware: Arc::new(middleware),
-        });
+                self.middleware_entries.push(MiddlewareEntry {
+                    method: options.method,
+                    pattern: parsed_pattern,
+                    middleware: Arc::new(middleware),
+                });
+            }
+        }
     }
 
-    /// Dispatch a request through the routing and middleware pipeline
+    /// Dispatch a request through the global middleware, routing, and route-specific middleware pipeline
     ///
-    /// This method:
-    /// 1. Looks up the route in the router
-    /// 2. Extracts path parameters
-    /// 3. Creates a context with the request, params, and environment
-    /// 4. Executes the pre-computed handler + middleware chain
-    /// 5. Returns the response or error
+    /// This method implements a middleware-first approach:
+    /// 1. Runs global middleware (can intercept before routing)
+    /// 2. Performs route lookup
+    /// 3. Extracts path parameters and creates context
+    /// 4. Executes route-specific middleware + handler chain
+    ///
+    /// Global middleware can:
+    /// - Intercept requests before routing (e.g., health checks, CORS preflight)
+    /// - Short-circuit the pipeline by returning early
+    /// - Modify requests before they reach routing
     ///
     /// # Arguments
     ///
@@ -332,7 +341,7 @@ where
     ///
     /// # Returns
     ///
-    /// - `Ok(Response)`: Successful response from handler
+    /// - `Ok(Response)`: Successful response from middleware or handler
     /// - `Err(CoreError)`: 404 (not found), 405 (method not allowed), or handler error
     ///
     /// # Examples
@@ -340,9 +349,53 @@ where
     /// ```rust,ignore
     /// let response = dispatcher.dispatch(request).await?;
     /// ```
-    pub async fn dispatch(&self, req: Request) -> Result<Response, CoreError> {
-        let method = req.method();
-        let path = req.path();
+    pub async fn dispatch(self: Arc<Self>, req: Request) -> Result<Response, CoreError> {
+        // Create initial context for global middleware
+        let ctx = Context::new(req, Arc::clone(&self.env));
+
+        // Execute global middleware chain first
+        self.execute_global_middleware(ctx).await
+    }
+
+    /// Execute global middleware chain, then route lookup and handler execution
+    async fn execute_global_middleware(
+        self: Arc<Self>,
+        ctx: Context<E>,
+    ) -> Result<Response, CoreError> {
+        if self.global_middleware.is_empty() {
+            // No global middleware, go directly to routing
+            return self.execute_routing(ctx).await;
+        }
+
+        // Create a handler that will do routing after all global middleware
+        let routing_handler = RoutingHandler {
+            dispatcher: Arc::clone(&self),
+        };
+        let mut next = Next::new(BoxedHandler::new(routing_handler));
+
+        // Apply global middleware in reverse order (last registered runs first)
+        for middleware in self.global_middleware.iter().rev() {
+            let current_next = next;
+            let middleware_clone = Arc::clone(middleware);
+
+            // Create a handler that runs this middleware with the current next
+            let middleware_handler = MiddlewareHandler {
+                middleware: middleware_clone,
+                next: current_next,
+            };
+
+            next = Next::new(BoxedHandler::new(middleware_handler));
+        }
+
+        // Execute the composed chain
+        let handler = next.into_handler();
+        handler.handle(ctx).await
+    }
+
+    /// Execute routing and route-specific middleware (called after global middleware)
+    async fn execute_routing(self: Arc<Self>, ctx: Context<E>) -> Result<Response, CoreError> {
+        let method = ctx.req.method();
+        let path = ctx.req.path();
 
         // Lookup route in router
         let matched = self
@@ -354,13 +407,44 @@ where
         let (handler, params) = matched.into_parts();
 
         // Create request with params
-        let req_with_params = req.with_params(params);
+        let req_with_params = ctx.req.with_params(params);
 
-        // Create context
-        let ctx = Context::new(req_with_params, Arc::clone(&self.env));
+        // Create new context with params
+        let ctx_with_params = Context::new(req_with_params, Arc::clone(&self.env));
 
-        // Execute handler (which includes pre-computed middleware chain)
-        handler.handle(ctx).await
+        // Execute handler (which includes pre-computed route-specific middleware chain)
+        handler.handle(ctx_with_params).await
+    }
+}
+
+/// Handler that executes routing after global middleware
+struct RoutingHandler<E> {
+    dispatcher: Arc<Dispatcher<E>>,
+}
+
+#[async_trait::async_trait]
+impl<E> crate::core::Handler<E> for RoutingHandler<E>
+where
+    E: Send + Sync + 'static,
+{
+    async fn handle(&self, ctx: Context<E>) -> Result<Response, CoreError> {
+        Arc::clone(&self.dispatcher).execute_routing(ctx).await
+    }
+}
+
+/// Handler that wraps a middleware with its next handler
+struct MiddlewareHandler<E> {
+    middleware: Arc<dyn Middleware<E>>,
+    next: Next<E>,
+}
+
+#[async_trait::async_trait]
+impl<E> crate::core::Handler<E> for MiddlewareHandler<E>
+where
+    E: Send + Sync + 'static,
+{
+    async fn handle(&self, ctx: Context<E>) -> Result<Response, CoreError> {
+        self.middleware.process(ctx, self.next.clone()).await
     }
 }
 
@@ -397,7 +481,7 @@ mod tests {
 
         // Dispatch a request
         let req = create_test_request(Method::GET, "/hello");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::new(dispatcher).dispatch(req).await.unwrap();
 
         match response.body() {
             ResponseBody::Bytes(bytes) => {
@@ -421,7 +505,7 @@ mod tests {
 
         // Dispatch a request
         let req = create_test_request(Method::GET, "/users/123");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::new(dispatcher).dispatch(req).await.unwrap();
 
         match response.body() {
             ResponseBody::Bytes(bytes) => {
@@ -437,7 +521,7 @@ mod tests {
 
         // Dispatch to non-existent route
         let req = create_test_request(Method::GET, "/nonexistent");
-        let result = dispatcher.dispatch(req).await;
+        let result = Arc::new(dispatcher).dispatch(req).await;
 
         assert!(result.is_err());
         if let Err(error) = result {
@@ -489,7 +573,7 @@ mod tests {
 
         // Dispatch request
         let req = create_test_request(Method::GET, "/test");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::new(dispatcher).dispatch(req).await.unwrap();
 
         // Middleware should have added header
         assert_eq!(
@@ -522,22 +606,23 @@ mod tests {
             .unwrap();
 
         // Test each route
+        let dispatcher = Arc::new(dispatcher);
         let req = create_test_request(Method::GET, "/");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         match response.body() {
             ResponseBody::Bytes(bytes) => assert_eq!(bytes, &Bytes::from("home")),
             _ => panic!("Expected Bytes body"),
         }
 
         let req = create_test_request(Method::GET, "/about");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         match response.body() {
             ResponseBody::Bytes(bytes) => assert_eq!(bytes, &Bytes::from("about")),
             _ => panic!("Expected Bytes body"),
         }
 
         let req = create_test_request(Method::POST, "/users");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         match response.body() {
             ResponseBody::Bytes(bytes) => assert_eq!(bytes, &Bytes::from("create user")),
             _ => panic!("Expected Bytes body"),
@@ -561,7 +646,7 @@ mod tests {
             .unwrap();
 
         let req = create_test_request(Method::GET, "/env");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::new(dispatcher).dispatch(req).await.unwrap();
 
         match response.body() {
             ResponseBody::Bytes(bytes) => {
@@ -582,7 +667,7 @@ mod tests {
             .unwrap();
 
         let req = create_test_request(Method::GET, "/error");
-        let result = dispatcher.dispatch(req).await;
+        let result = Arc::new(dispatcher).dispatch(req).await;
 
         assert!(result.is_err());
         if let Err(error) = result {
@@ -662,13 +747,14 @@ mod tests {
             .unwrap();
 
         // Test /api/users - should have middleware header
+        let dispatcher = Arc::new(dispatcher);
         let req = create_test_request(Method::GET, "/api/users");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         assert_eq!(response.headers().get("X-API").unwrap(), "protected");
 
         // Test /public - should NOT have middleware header
         let req = create_test_request(Method::GET, "/public");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         assert!(response.headers().get("X-API").is_none());
     }
 
@@ -729,18 +815,19 @@ mod tests {
             .unwrap();
 
         // Test POST /api/users - should have middleware header
+        let dispatcher = Arc::new(dispatcher);
         let req = create_test_request(Method::POST, "/api/users");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         assert_eq!(response.headers().get("X-Validated").unwrap(), "true");
 
         // Test GET /api/users - should NOT have middleware header (wrong method)
         let req = create_test_request(Method::GET, "/api/users");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         assert!(response.headers().get("X-Validated").is_none());
 
         // Test POST /public - should NOT have middleware header (wrong path)
         let req = create_test_request(Method::POST, "/public");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         assert!(response.headers().get("X-Validated").is_none());
     }
 
@@ -793,13 +880,14 @@ mod tests {
             .unwrap();
 
         // Test /api/users - should have middleware header
+        let dispatcher = Arc::new(dispatcher);
         let req = create_test_request(Method::GET, "/api/users");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         assert_eq!(response.headers().get("X-Exact").unwrap(), "match");
 
         // Test /api/posts - should NOT have middleware header
         let req = create_test_request(Method::GET, "/api/posts");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         assert!(response.headers().get("X-Exact").is_none());
     }
 
@@ -866,7 +954,7 @@ mod tests {
 
         // Test - should have all three headers
         let req = create_test_request(Method::POST, "/api/users");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::new(dispatcher).dispatch(req).await.unwrap();
         assert_eq!(response.headers().get("X-Global").unwrap(), "all");
         assert_eq!(response.headers().get("X-API").unwrap(), "api");
         assert_eq!(response.headers().get("X-POST").unwrap(), "post");
@@ -921,13 +1009,14 @@ mod tests {
             .unwrap();
 
         // Test /users/123 - should have middleware header
+        let dispatcher = Arc::new(dispatcher);
         let req = create_test_request(Method::GET, "/users/123");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         assert_eq!(response.headers().get("X-User").unwrap(), "specific");
 
         // Test /posts/456 - should NOT have middleware header
         let req = create_test_request(Method::GET, "/posts/456");
-        let response = dispatcher.dispatch(req).await.unwrap();
+        let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         assert!(response.headers().get("X-User").is_none());
     }
 }

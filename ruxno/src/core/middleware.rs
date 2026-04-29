@@ -142,9 +142,16 @@ pub trait Middleware<E = ()>: Send + Sync + 'static {
 ///     unreachable!()
 /// }
 /// ```
-#[derive(Clone)]
 pub struct Next<E = ()> {
     handler: BoxedHandler<E>,
+}
+
+impl<E> Clone for Next<E> {
+    fn clone(&self) -> Self {
+        Self {
+            handler: self.handler.clone(),
+        }
+    }
 }
 
 impl<E> Next<E>

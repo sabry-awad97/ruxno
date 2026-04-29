@@ -10,11 +10,38 @@
 mod util;
 
 use ruxno::prelude::*;
-use ruxno_middleware::{cors, pretty_json};
+use ruxno_middleware::{
+    HealthCheckConfig, HealthCheckResult, cors, health_check_with_config, pretty_json,
+};
 
 #[tokio::main]
 async fn main() {
     let mut app = App::new();
+
+    // Health check middleware - responds to /health with custom checks
+    let health_config = HealthCheckConfig::new()
+        .with_path("/health")
+        .with_check("database", async || {
+            // Simulate database check
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            HealthCheckResult::healthy_with_message("Database connection OK")
+        })
+        .with_check("cache", async || {
+            // Simulate cache check
+            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+            HealthCheckResult::healthy_with_message("Cache connection OK")
+        })
+        .with_check("external_api", async || {
+            // Simulate external API check (sometimes degraded)
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            if rand::random::<f32>() > 0.8 {
+                HealthCheckResult::degraded("External API responding slowly")
+            } else {
+                HealthCheckResult::healthy_with_message("External API OK")
+            }
+        });
+
+    app.r#use(health_check_with_config(health_config));
 
     // CORS middleware - allow cross-origin requests (development mode)
     app.r#use(cors());
@@ -48,6 +75,7 @@ async fn main() {
             "version": "1.0.0",
             "endpoints": [
                 "/",
+                "/health",
                 "/users",
                 "/users/:id",
                 "/admin",
@@ -142,7 +170,8 @@ async fn main() {
             "features": {
                 "pretty_json": true,
                 "rate_limiting": false,
-                "cors": true
+                "cors": true,
+                "health_check": true
             }
         })))
     });
