@@ -21,6 +21,7 @@
 //! ```
 
 use crate::domain::{Request, Response};
+use crate::http::Headers;
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
@@ -64,8 +65,11 @@ pub async fn from_hyper_request(req: hyper::Request<Incoming>) -> Request {
     // Parse query parameters from URI
     let query = parse_query_params(parts.uri.query());
 
+    // Convert headers (HeaderMap -> Headers wrapper)
+    let headers = Headers::from(parts.headers);
+
     // Create domain request
-    Request::new(parts.method, parts.uri, query, parts.headers, body_bytes)
+    Request::new(parts.method, parts.uri, query, headers, body_bytes)
 }
 
 /// Convert domain response to Hyper response
@@ -108,7 +112,7 @@ pub fn to_hyper_response(res: Response) -> hyper::Response<http_body_util::Full<
     // Build Hyper response
     let mut builder = hyper::Response::builder().status(status);
 
-    // Add headers
+    // Add headers (iterate over Headers wrapper)
     for (name, value) in headers.iter() {
         builder = builder.header(name, value);
     }
@@ -170,9 +174,8 @@ fn parse_query_params(query: Option<&str>) -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{Method, StatusCode};
+    use crate::core::StatusCode;
     use crate::domain::Response;
-    use http::HeaderMap;
 
     #[test]
     fn test_parse_query_params_empty() {
@@ -225,11 +228,11 @@ mod tests {
             .unwrap();
 
         // Convert Full body to Incoming (this is a simplification for testing)
-        let (parts, body) = hyper_req.into_parts();
-        let body_stream = http_body_util::BodyExt::map_err(body, |_| {
+        let (_parts, _body) = hyper_req.into_parts();
+        let _body_stream = http_body_util::BodyExt::map_err(_body, |_| {
             std::io::Error::new(std::io::ErrorKind::Other, "body error")
         });
-        let incoming_body = http_body_util::BodyExt::boxed(body_stream);
+        let _incoming_body = http_body_util::BodyExt::boxed(_body_stream);
 
         // For testing, we'll create a simpler test
         // In real usage, Incoming comes from Hyper's server
@@ -240,11 +243,10 @@ mod tests {
         let domain_res = Response::text("Hello, World!");
         let hyper_res = to_hyper_response(domain_res);
 
-        assert_eq!(hyper_res.status(), StatusCode::OK);
+        assert_eq!(hyper_res.status(), crate::core::StatusCode::OK);
 
-        // Check body
-        let body = hyper_res.into_body();
-        // Body is consumed, so we can't easily test it here without async
+        // Check body (consumed, so we can't easily test it here without async)
+        let _body = hyper_res.into_body();
     }
 
     #[test]

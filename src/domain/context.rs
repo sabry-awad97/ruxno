@@ -275,9 +275,11 @@ impl<E> Clone for Context<E> {
 
 #[cfg(test)]
 mod tests {
+    use crate::http::Headers;
+
     use super::*;
     use bytes::Bytes;
-    use http::{HeaderMap, Uri};
+    use http::Uri;
     use std::collections::HashMap;
 
     fn create_test_context() -> Context<()> {
@@ -285,7 +287,7 @@ mod tests {
             crate::core::Method::GET,
             "/api/users".parse::<Uri>().unwrap(),
             HashMap::new(),
-            HeaderMap::new(),
+            Headers::new(),
             Bytes::new(),
         );
         Context::new(req, Arc::new(()))
@@ -307,7 +309,7 @@ mod tests {
             crate::core::Method::GET,
             "/".parse::<Uri>().unwrap(),
             HashMap::new(),
-            HeaderMap::new(),
+            Headers::new(),
             Bytes::new(),
         );
         let ctx = Context::new(req, Arc::new(TestEnv { value: 42 }));
@@ -462,7 +464,7 @@ mod tests {
             crate::core::Method::GET,
             "/".parse::<Uri>().unwrap(),
             HashMap::new(),
-            HeaderMap::new(),
+            Headers::new(),
             Bytes::new(),
         );
         let ctx = Context::new(req, Arc::new(env));

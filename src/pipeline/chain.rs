@@ -167,8 +167,8 @@ mod tests {
     use super::*;
     use crate::core::{Method, StatusCode};
     use crate::domain::{Request, ResponseBody};
+    use crate::http::Headers;
     use bytes::Bytes;
-    use http::HeaderMap;
     use std::collections::HashMap;
 
     // Helper to create a minimal test request (following pattern from domain/request.rs)
@@ -177,7 +177,7 @@ mod tests {
             Method::GET,
             "/test".parse().unwrap(),
             HashMap::new(),
-            HeaderMap::new(),
+            Headers::new(),
             Bytes::new(),
         )
     }
@@ -203,10 +203,7 @@ mod tests {
     {
         async fn process(&self, ctx: Context<E>, next: Next<E>) -> Result<Response, CoreError> {
             let mut response = next.run(ctx).await?;
-            response.headers_mut().insert(
-                self.name.parse::<http::header::HeaderName>().unwrap(),
-                self.value.parse().unwrap(),
-            );
+            response.headers_mut().set(&self.name, &self.value).ok();
             Ok(response)
         }
     }
@@ -301,10 +298,7 @@ mod tests {
                 // After handler - add to response header
                 let mut response = response;
                 let after_value = format!("after-{}", self.id);
-                response.headers_mut().append(
-                    "X-Order".parse::<http::header::HeaderName>().unwrap(),
-                    after_value.parse().unwrap(),
-                );
+                response.headers_mut().append("X-Order", &after_value).ok();
 
                 Ok(response)
             }
@@ -345,12 +339,7 @@ mod tests {
         }
 
         // Check headers contain after order (in reverse)
-        let after_headers: Vec<_> = response
-            .headers()
-            .get_all("X-Order")
-            .iter()
-            .map(|v| v.to_str().unwrap())
-            .collect();
+        let after_headers: Vec<&str> = response.headers().get_all("X-Order").collect();
         assert_eq!(after_headers, vec!["after-3", "after-2", "after-1"]);
     }
 

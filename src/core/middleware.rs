@@ -29,11 +29,10 @@
 //! };
 //! ```
 
-use crate::core::{BoxedHandler, CoreError, Handler};
+use crate::core::{BoxedHandler, CoreError};
 use crate::domain::{Context, Response};
 use async_trait::async_trait;
 use std::future::Future;
-use std::sync::Arc;
 
 /// Middleware trait for processing requests in a chain
 ///
@@ -169,18 +168,6 @@ where
     /// ```
     pub fn new(handler: BoxedHandler<E>) -> Self {
         Self { handler }
-    }
-
-    /// Create a new Next from a boxed handler (internal use)
-    ///
-    /// This is an alias for `new()` that matches the old API naming.
-    /// Used internally by the dispatcher when building middleware chains.
-    ///
-    /// # Arguments
-    ///
-    /// - `handler`: The next handler in the chain (wrapped in Arc)
-    pub(crate) fn from_boxed(handler: BoxedHandler<E>) -> Self {
-        Self::new(handler)
     }
 
     /// Get the underlying handler
@@ -333,6 +320,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
     #[tokio::test]

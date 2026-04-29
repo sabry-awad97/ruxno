@@ -35,9 +35,10 @@
 //! ```
 
 use crate::core::{CoreError, Method};
+use crate::http::Headers;
 use crate::routing::Params;
 use bytes::Bytes;
-use http::{HeaderMap, Uri};
+use http::Uri;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -95,7 +96,7 @@ struct RequestInner {
     query: HashMap<String, String>,
 
     /// Headers (HTTP-aware, case-insensitive, multi-value support)
-    headers: HeaderMap,
+    headers: Headers,
 
     /// Raw body bytes
     body: Bytes,
@@ -129,7 +130,7 @@ impl Request {
     /// - `method`: HTTP method
     /// - `uri`: HTTP URI (includes path and query string)
     /// - `query`: Parsed query parameters
-    /// - `headers`: Request headers (http::HeaderMap)
+    /// - `headers`: Request headers (Headers wrapper)
     /// - `body`: Raw body bytes
     ///
     /// # Examples
@@ -140,7 +141,7 @@ impl Request {
     ///     Method::GET,
     ///     uri,
     ///     HashMap::from([("page".to_string(), "1".to_string())]),
-    ///     HeaderMap::new(),
+    ///     Headers::new(),
     ///     Bytes::new(),
     /// );
     /// ```
@@ -148,7 +149,7 @@ impl Request {
         method: Method,
         uri: Uri,
         query: HashMap<String, String>,
-        headers: HeaderMap,
+        headers: Headers,
         body: Bytes,
     ) -> Self {
         Self {
@@ -274,7 +275,7 @@ impl Request {
     /// }
     /// ```
     pub fn header(&self, key: &str) -> Option<&str> {
-        self.inner.headers.get(key).and_then(|v| v.to_str().ok())
+        self.inner.headers.get(key)
     }
 
     /// Get all values for a header (case-insensitive)
@@ -289,12 +290,8 @@ impl Request {
     ///     println!("Cookie: {}", cookie);
     /// }
     /// ```
-    pub fn header_all(&self, key: &str) -> impl Iterator<Item = &str> {
-        self.inner
-            .headers
-            .get_all(key)
-            .iter()
-            .filter_map(|v| v.to_str().ok())
+    pub fn header_all(&self, key: &str) -> Vec<&str> {
+        self.inner.headers.get_all(key).collect()
     }
 
     /// Get all headers
@@ -304,10 +301,10 @@ impl Request {
     /// ```rust,ignore
     /// let headers = req.headers();
     /// for (key, value) in headers.iter() {
-    ///     println!("{}: {:?}", key, value);
+    ///     println!("{}: {}", key, value);
     /// }
     /// ```
-    pub fn headers(&self) -> &HeaderMap {
+    pub fn headers(&self) -> &Headers {
         &self.inner.headers
     }
 
@@ -466,9 +463,9 @@ mod tests {
     use crate::core::Method;
 
     fn create_test_request() -> Request {
-        let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
-        headers.insert("authorization", "Bearer token123".parse().unwrap());
+        let mut headers = Headers::new();
+        headers.set("content-type", "application/json").unwrap();
+        headers.set("authorization", "Bearer token123").unwrap();
 
         Request::new(
             Method::GET,
@@ -529,9 +526,9 @@ mod tests {
 
     #[test]
     fn test_request_header_all() {
-        let mut headers = HeaderMap::new();
-        headers.append("set-cookie", "cookie1=value1".parse().unwrap());
-        headers.append("set-cookie", "cookie2=value2".parse().unwrap());
+        let mut headers = Headers::new();
+        headers.append("set-cookie", "cookie1=value1").unwrap();
+        headers.append("set-cookie", "cookie2=value2").unwrap();
 
         let req = Request::new(
             Method::GET,
@@ -541,7 +538,7 @@ mod tests {
             Bytes::new(),
         );
 
-        let cookies: Vec<&str> = req.header_all("set-cookie").collect();
+        let cookies = req.header_all("set-cookie");
         assert_eq!(cookies.len(), 2);
         assert!(cookies.contains(&"cookie1=value1"));
         assert!(cookies.contains(&"cookie2=value2"));
@@ -552,8 +549,8 @@ mod tests {
         let req = create_test_request();
         let headers = req.headers();
         assert_eq!(headers.len(), 2);
-        assert!(headers.contains_key("content-type"));
-        assert!(headers.contains_key("authorization"));
+        assert!(headers.contains("content-type"));
+        assert!(headers.contains("authorization"));
     }
 
     #[test]
@@ -636,7 +633,7 @@ mod tests {
             Method::POST,
             "/api/users".parse().unwrap(),
             HashMap::new(),
-            HeaderMap::new(),
+            Headers::new(),
             Bytes::from("invalid json"),
         );
 
@@ -650,7 +647,7 @@ mod tests {
             Method::POST,
             "/api/echo".parse().unwrap(),
             HashMap::new(),
-            HeaderMap::new(),
+            Headers::new(),
             Bytes::from("Hello, World!"),
         );
 
@@ -668,7 +665,7 @@ mod tests {
             Method::POST,
             "/api/login".parse().unwrap(),
             HashMap::new(),
-            HeaderMap::new(),
+            Headers::new(),
             Bytes::from("email=john%40example.com&password=secret123"),
         );
 

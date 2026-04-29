@@ -85,8 +85,8 @@ mod tests {
     use super::*;
     use crate::core::Method;
     use crate::domain::{Request, ResponseBody};
+    use crate::http::Headers;
     use bytes::Bytes;
-    use http::HeaderMap;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -96,7 +96,7 @@ mod tests {
             Method::GET,
             "/test".parse().unwrap(),
             HashMap::new(),
-            HeaderMap::new(),
+            Headers::new(),
             Bytes::new(),
         )
     }

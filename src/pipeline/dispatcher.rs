@@ -215,11 +215,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::StatusCode;
     use crate::domain::ResponseBody;
+    use crate::http::Headers;
     use async_trait::async_trait;
     use bytes::Bytes;
-    use http::HeaderMap;
     use std::collections::HashMap;
 
     // Helper to create a minimal test request
@@ -228,7 +227,7 @@ mod tests {
             method,
             path.parse().unwrap(),
             HashMap::new(),
-            HeaderMap::new(),
+            Headers::new(),
             Bytes::new(),
         )
     }
@@ -313,10 +312,7 @@ mod tests {
                 next: crate::core::Next<E>,
             ) -> Result<Response, CoreError> {
                 let mut response = next.run(ctx).await?;
-                response.headers_mut().insert(
-                    self.name.parse::<http::header::HeaderName>().unwrap(),
-                    self.value.parse().unwrap(),
-                );
+                response.headers_mut().set(&self.name, &self.value).ok();
                 Ok(response)
             }
         }

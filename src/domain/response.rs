@@ -33,9 +33,9 @@
 //! ```
 
 use crate::core::StatusCode;
+use crate::http::Headers;
 use bytes::Bytes;
 use futures_util::Stream;
-use http::HeaderMap;
 use std::pin::Pin;
 
 /// Response body type
@@ -101,7 +101,7 @@ pub struct Response {
     status: StatusCode,
 
     /// Response headers (HTTP-aware, case-insensitive)
-    headers: HeaderMap,
+    headers: Headers,
 
     /// Response body
     body: ResponseBody,
@@ -119,7 +119,7 @@ impl Response {
     pub fn new() -> Self {
         Self {
             status: StatusCode::OK,
-            headers: HeaderMap::new(),
+            headers: Headers::new(),
             body: ResponseBody::Empty,
         }
     }
@@ -134,8 +134,10 @@ impl Response {
     /// let res = Response::text("Hello, World!");
     /// ```
     pub fn text(text: impl Into<String>) -> Self {
-        let mut headers = HeaderMap::new();
-        headers.insert("content-type", "text/plain; charset=utf-8".parse().unwrap());
+        let mut headers = Headers::new();
+        headers
+            .set("content-type", "text/plain; charset=utf-8")
+            .ok();
 
         Self {
             status: StatusCode::OK,
@@ -157,8 +159,8 @@ impl Response {
     pub fn json<T: serde::Serialize>(value: &T) -> Self {
         match serde_json::to_string(value) {
             Ok(body) => {
-                let mut headers = HeaderMap::new();
-                headers.insert("content-type", "application/json".parse().unwrap());
+                let mut headers = Headers::new();
+                headers.set("content-type", "application/json").ok();
 
                 Self {
                     status: StatusCode::OK,
@@ -185,8 +187,8 @@ impl Response {
     /// let res = Response::html("<h1>Hello</h1>");
     /// ```
     pub fn html(html: impl Into<String>) -> Self {
-        let mut headers = HeaderMap::new();
-        headers.insert("content-type", "text/html; charset=utf-8".parse().unwrap());
+        let mut headers = Headers::new();
+        headers.set("content-type", "text/html; charset=utf-8").ok();
 
         Self {
             status: StatusCode::OK,
@@ -210,8 +212,8 @@ impl Response {
     /// let res = Response::redirect("/new-url").with_status(StatusCode::MOVED_PERMANENTLY);
     /// ```
     pub fn redirect(location: impl Into<String>) -> Self {
-        let mut headers = HeaderMap::new();
-        headers.insert("location", location.into().parse().unwrap());
+        let mut headers = Headers::new();
+        headers.set("location", &location.into()).ok();
 
         Self {
             status: StatusCode::FOUND, // 302
@@ -242,16 +244,7 @@ impl Response {
     ///     .with_header("cache-control", "no-cache");
     /// ```
     pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        let name_str = name.into();
-        let value_str = value.into();
-
-        // Try to parse both name and value as valid HTTP header components
-        if let (Ok(header_name), Ok(header_value)) = (
-            name_str.parse::<http::header::HeaderName>(),
-            value_str.parse::<http::header::HeaderValue>(),
-        ) {
-            self.headers.insert(header_name, header_value);
-        }
+        self.headers.set(&name.into(), &value.into()).ok();
         self
     }
 
@@ -297,7 +290,7 @@ impl Response {
     /// ```rust,ignore
     /// let headers = res.headers();
     /// ```
-    pub fn headers(&self) -> &HeaderMap {
+    pub fn headers(&self) -> &Headers {
         &self.headers
     }
 
@@ -306,9 +299,9 @@ impl Response {
     /// # Examples
     ///
     /// ```rust,ignore
-    /// res.headers_mut().insert("x-custom", "value".parse().unwrap());
+    /// res.headers_mut().set("x-custom", "value").unwrap();
     /// ```
-    pub fn headers_mut(&mut self) -> &mut HeaderMap {
+    pub fn headers_mut(&mut self) -> &mut Headers {
         &mut self.headers
     }
 
@@ -550,9 +543,8 @@ mod tests {
     #[test]
     fn test_response_headers_mut() {
         let mut res = Response::new();
-        res.headers_mut()
-            .insert("x-custom", "value".parse().unwrap());
-        assert_eq!(res.headers().get("x-custom").unwrap(), "value");
+        res.headers_mut().set("x-custom", "value").unwrap();
+        assert_eq!(res.headers().get("x-custom"), Some("value"));
     }
 
     #[test]
