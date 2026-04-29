@@ -36,8 +36,8 @@ thiserror = { workspace = true }
 async-trait = { workspace = true }
 
 # WebSocket support
-hyper-tungstenite = "0.15"
-tokio-tungstenite = "0.24"
+hyper-tungstenite = "0.19.0"
+tokio-tungstenite = "0.29.0"
 sha1 = { workspace = true }
 base64 = { workspace = true }
 

@@ -15,6 +15,7 @@
 //! - **auth**: JWT authentication helpers
 //! - **logger**: Request/response logging
 //! - **security-headers**: Security headers (HSTS, CSP, etc.)
+//! - **pretty-json**: Pretty-print JSON responses with configurable indentation
 //!
 //! ## Usage
 //!
@@ -56,6 +57,22 @@
 //!
 //! app.use_middleware("*", cors.middleware());
 //! ```
+//!
+//! ### Pretty JSON
+//!
+//! ```rust,ignore
+//! use ruxno::App;
+//! use ruxno_middleware::pretty_json;
+//!
+//! let mut app = App::new();
+//!
+//! // Simple usage with default settings (2-space indentation)
+//! app.r#use(pretty_json());
+//!
+//! // Or with custom configuration
+//! use ruxno_middleware::PrettyJsonMiddleware;
+//! app.r#use(PrettyJsonMiddleware::with_indent(4));
+//! ```
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
@@ -83,6 +100,9 @@ pub mod logger;
 #[cfg(feature = "security-headers")]
 pub mod security_headers;
 
+#[cfg(feature = "pretty-json")]
+pub mod pretty_json;
+
 // Re-exports for convenience
 #[cfg(feature = "rate-limit")]
 pub use rate_limit::RateLimitMiddleware;
@@ -101,3 +121,6 @@ pub use logger::LoggerMiddleware;
 
 #[cfg(feature = "security-headers")]
 pub use security_headers::SecurityHeadersMiddleware;
+
+#[cfg(feature = "pretty-json")]
+pub use pretty_json::{pretty_json, PrettyJsonMiddleware};

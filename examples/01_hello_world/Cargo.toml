@@ -2,13 +2,25 @@
 name = "hello_world"
 version = "0.1.0"
 edition = "2024"
+default-run = "hello_world"
+
+[[bin]]
+name = "hello_world"
+path = "src/main.rs"
+
+[[bin]]
+name = "test_client"
+path = "src/bin/test_client.rs"
 
 [dependencies]
 # Core framework
 ruxno = { workspace = true }
 
 # Middleware (with all features for examples)
-ruxno-middleware = { workspace = true, features = ["rate-limit"] }
+ruxno-middleware = { workspace = true, features = [
+    "rate-limit",
+    "pretty-json",
+] }
 
 # Runtime
 tokio = { workspace = true }
@@ -16,3 +28,5 @@ tokio = { workspace = true }
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
+tabled = { version = "0.20.0", features = ["ansi"] }
+reqwest = { version = "0.13.3", features = ["json"] }

@@ -61,6 +61,7 @@ compression = ["flate2", "brotli"]
 auth = ["jsonwebtoken"]
 logger = ["tracing"]
 security-headers = []
+pretty-json = []
 
 # Convenience feature bundles
 full = [
@@ -70,6 +71,7 @@ full = [
     "auth",
     "logger",
     "security-headers",
+    "pretty-json",
 ]
 production = ["rate-limit", "cors", "security-headers"]
 
