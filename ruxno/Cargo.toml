@@ -1,0 +1,73 @@
+[package]
+name = "ruxno"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "A fast, ergonomic Rust web framework with clean architecture"
+rust-version = "1.85"
+
+[dependencies]
+# Core async runtime
+tokio = { workspace = true }
+
+# HTTP server
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http = { workspace = true }
+http-body = "1.0"
+http-body-util = { workspace = true }
+
+# Routing
+matchit = "0.9.2"
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Utilities
+bytes = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+
+# WebSocket support
+hyper-tungstenite = "0.15"
+tokio-tungstenite = "0.24"
+sha1 = { workspace = true }
+base64 = { workspace = true }
+
+# SSE support
+futures-util = "0.3.32"
+async-stream = "0.3"
+
+# Body parsing
+serde_qs = "1.1.1"
+urlencoding = { workspace = true }
+serde_urlencoded = "0.7.1"
+multer = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4.5"
+criterion = { workspace = true }
+
+[lib]
+name = "ruxno"
+path = "src/lib.rs"
+
+[[bench]]
+name = "routing"
+harness = false
+
+[[bench]]
+name = "middleware"
+harness = false
+
+[[bench]]
+name = "dispatcher"
+harness = false

@@ -1,0 +1,78 @@
+[package]
+name = "ruxno-middleware"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Optional middleware collection for the Ruxno web framework"
+rust-version = "1.85"
+
+[dependencies]
+# Core framework
+ruxno = { path = "../ruxno" }
+
+# Common dependencies
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+
+# Rate limiting (optional)
+governor = { workspace = true, optional = true }
+
+# CORS and other HTTP middleware (optional)
+tower = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
+
+# Redis support for distributed rate limiting (optional)
+redis = { version = "1.2.0", features = [
+    "tokio-comp",
+    "connection-manager",
+], optional = true }
+
+# Compression (optional)
+flate2 = { version = "1.0", optional = true }
+brotli = { version = "8.0.2", optional = true }
+
+# JWT authentication (optional)
+jsonwebtoken = { version = "9.3.1", optional = true }
+
+# Logging (optional)
+tracing = { version = "0.1", optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4.5"
+
+[features]
+default = []
+
+# Individual middleware features
+rate-limit = ["governor"]
+rate-limit-redis = ["governor", "redis"]
+cors = ["tower", "tower-http"]
+compression = ["flate2", "brotli"]
+auth = ["jsonwebtoken"]
+logger = ["tracing"]
+security-headers = []
+
+# Convenience feature bundles
+full = [
+    "rate-limit",
+    "cors",
+    "compression",
+    "auth",
+    "logger",
+    "security-headers",
+]
+production = ["rate-limit", "cors", "security-headers"]
+
+[lib]
+name = "ruxno_middleware"
+path = "src/lib.rs"

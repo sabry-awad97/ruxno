@@ -261,7 +261,9 @@ mod tests {
     use futures_util::stream;
 
     // Helper to create a test stream
-    fn create_test_stream(chunks: Vec<&[u8]>) -> impl Stream<Item = Result<Bytes, io::Error>> {
+    fn create_test_stream(
+        chunks: Vec<&'static [u8]>,
+    ) -> impl Stream<Item = Result<Bytes, io::Error>> + 'static {
         stream::iter(
             chunks
                 .into_iter()
@@ -331,7 +333,7 @@ mod tests {
     async fn test_body_stream_error() {
         let error_stream = stream::iter(vec![
             Ok(Bytes::from("hello")),
-            Err(io::Error::new(io::ErrorKind::Other, "test error")),
+            Err(io::Error::other("test error")),
         ]);
         let mut stream = BodyStream::new(error_stream);
 
