@@ -359,12 +359,13 @@ impl Request {
 
     /// Parse body as JSON
     ///
-    /// The body is parsed from cached text (if available) or directly from bytes.
-    /// This ensures consistent behavior and predictable performance.
+    /// Uses the `JsonParser` with default size limits (2MB).
+    /// The body is parsed from raw bytes for optimal performance.
     ///
     /// # Errors
     ///
     /// Returns `CoreError::BodyParseError` if the body is not valid JSON.
+    /// Returns `CoreError::BadRequest` if body exceeds size limit.
     ///
     /// # Examples
     ///
@@ -382,10 +383,8 @@ impl Request {
     where
         T: serde::de::DeserializeOwned,
     {
-        // Parse from cached text if available, otherwise from bytes
-        let text = self.text().await?;
-        serde_json::from_str(&text)
-            .map_err(|e| CoreError::body_parse_error(format!("Invalid JSON: {}", e)))
+        // Use JsonParser for consistent parsing with size limits
+        crate::body::JsonParser::parse_as(&self.inner.body).await
     }
 
     /// Parse body as plain text

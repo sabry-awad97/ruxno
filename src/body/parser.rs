@@ -113,9 +113,8 @@ where
 {
     match content_type {
         Some(ct) if ct.contains("application/json") => {
-            // Parse as JSON
-            serde_json::from_slice(body)
-                .map_err(|e| CoreError::body_parse_error(format!("Invalid JSON: {}", e)))
+            // Use JsonParser for consistent parsing with size limits
+            crate::body::JsonParser::parse_as(body).await
         }
         Some(ct) if ct.contains("application/x-www-form-urlencoded") => {
             // Parse as form data
@@ -135,9 +134,8 @@ where
             })
         }
         _ => {
-            // Default to JSON
-            serde_json::from_slice(body)
-                .map_err(|e| CoreError::body_parse_error(format!("Invalid JSON (default): {}", e)))
+            // Default to JSON using JsonParser
+            crate::body::JsonParser::parse_as(body).await
         }
     }
 }
