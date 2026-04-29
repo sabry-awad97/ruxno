@@ -55,6 +55,7 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 /// HTTP Server
 ///
@@ -263,6 +264,18 @@ where
         // Create service
         let service = RuxnoService::new(Arc::clone(&self.app));
 
+        // Create connection limiter semaphore if max_connections is configured
+        let connection_semaphore = self
+            .config
+            .max_connections()
+            .map(|max| Arc::new(Semaphore::new(max)));
+
+        if let Some(max) = self.config.max_connections() {
+            println!("📊 Connection limit: {} concurrent connections", max);
+        } else {
+            println!("⚠️  No connection limit (unlimited connections)");
+        }
+
         tokio::pin!(shutdown);
 
         // Main server loop
@@ -274,6 +287,42 @@ where
                         CoreError::Internal(format!("Failed to accept connection: {}", e))
                     })?;
 
+                    // Try to acquire connection permit if limit is configured
+                    let permit = if let Some(ref semaphore) = connection_semaphore {
+                        match semaphore.clone().try_acquire_owned() {
+                            Ok(permit) => Some(permit),
+                            Err(_) => {
+                                // Connection limit reached - reject with 503
+                                eprintln!("🚫 Connection limit reached, rejecting connection from {}", peer_addr);
+
+                                // Send 503 Service Unavailable response
+                                let io = TokioIo::new(stream);
+                                tokio::spawn(async move {
+                                    let response = hyper::Response::builder()
+                                        .status(hyper::StatusCode::SERVICE_UNAVAILABLE)
+                                        .header("content-type", "application/json")
+                                        .header("retry-after", "5")
+                                        .body(http_body_util::Full::new(bytes::Bytes::from(
+                                            r#"{"error":"Service Unavailable","message":"Server connection limit reached. Please try again later."}"#
+                                        )))
+                                        .unwrap();
+
+                                    let service_fn = service_fn(move |_req: hyper::Request<Incoming>| {
+                                        let response = response.clone();
+                                        async move { Ok::<_, std::convert::Infallible>(response) }
+                                    });
+
+                                    let _ = http1::Builder::new()
+                                        .serve_connection(io, service_fn)
+                                        .await;
+                                });
+                                continue;
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
                     let io = TokioIo::new(stream);
                     let service = service.clone();
                     let max_body_size = self.config.max_body_size();
@@ -281,6 +330,9 @@ where
 
                     // Spawn a task to handle this connection
                     tokio::spawn(async move {
+                        // Hold permit for the duration of the connection
+                        let _permit = permit;
+
                         let service_fn = service_fn(move |req: hyper::Request<Incoming>| {
                             let service = service.clone();
                             async move { service.handle(req, max_body_size).await }
@@ -305,6 +357,8 @@ where
                         if let Err(e) = result {
                             eprintln!("Connection error from {}: {}", peer_addr, e);
                         }
+
+                        // Permit is automatically released when _permit is dropped
                     });
                 }
                 // Handle shutdown signal

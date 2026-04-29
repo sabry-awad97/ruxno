@@ -44,6 +44,9 @@ pub struct ServerConfig {
     /// Graceful shutdown timeout
     shutdown_timeout: Duration,
 
+    /// Maximum concurrent connections (None = unlimited)
+    max_connections: Option<usize>,
+
     /// Enable HTTP/1 support
     http1_enabled: bool,
 
@@ -241,6 +244,40 @@ impl ServerConfig {
         self
     }
 
+    /// Set maximum concurrent connections
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ruxno::server::ServerConfig;
+    ///
+    /// let config = ServerConfig::new()
+    ///     .with_max_connections(1000);
+    ///
+    /// assert_eq!(config.max_connections(), Some(1000));
+    /// ```
+    pub fn with_max_connections(mut self, max: usize) -> Self {
+        self.max_connections = Some(max);
+        self
+    }
+
+    /// Disable connection limit (unlimited connections)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ruxno::server::ServerConfig;
+    ///
+    /// let config = ServerConfig::new()
+    ///     .without_connection_limit();
+    ///
+    /// assert_eq!(config.max_connections(), None);
+    /// ```
+    pub fn without_connection_limit(mut self) -> Self {
+        self.max_connections = None;
+        self
+    }
+
     /// Enable HTTP/2 support (future)
     ///
     /// # Examples
@@ -312,6 +349,11 @@ impl ServerConfig {
         self.shutdown_timeout
     }
 
+    /// Get maximum concurrent connections
+    pub fn max_connections(&self) -> Option<usize> {
+        self.max_connections
+    }
+
     /// Check if HTTP/1 is enabled
     pub fn http1_enabled(&self) -> bool {
         self.http1_enabled
@@ -342,6 +384,7 @@ impl Default for ServerConfig {
             max_headers: 100,
             keep_alive_timeout: Some(Duration::from_secs(60)),
             shutdown_timeout: Duration::from_secs(30),
+            max_connections: Some(10000), // Default: 10k concurrent connections
             http1_enabled: true,
             http2_enabled: false,
             tls_config: None,
