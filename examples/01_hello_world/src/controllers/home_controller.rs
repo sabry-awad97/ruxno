@@ -4,15 +4,14 @@
 //! Provides HTML responses similar to the Node.js HTTP sniffer example.
 
 use crate::config::AppEnv;
-use hypertext::prelude::*;
-use hypertext::{Buffer, Lazy, Raw};
+use maud::{PreEscaped, html};
 use ruxno::core::CoreError;
 use ruxno::prelude::*;
 use sysinfo::{Disks, Networks, System};
 
 /// Home page handler - returns HTML page
 pub async fn index(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
-    let markup = maud! {
+    let markup: maud::PreEscaped<String> = html! {
         html {
             head {
                 title { "Hello, world!" }
@@ -38,7 +37,7 @@ pub async fn index(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
         }
     };
 
-    Ok(ctx.html(markup.render().as_inner()))
+    Ok(ctx.html(markup.into_string()))
 }
 
 /// OS Info page handler - returns system information in HTML
@@ -99,7 +98,7 @@ pub async fn osinfo(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
     // Format uptime
     let uptime_formatted = format_uptime(uptime);
 
-    let markup = maud! {
+    let markup = html! {
         html {
             head {
                 title { "Operating System Info" }
@@ -130,7 +129,7 @@ pub async fn osinfo(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
                             "Available: " (format_bytes(available_memory))
                         }
                     }
-                    tr { th { "CPU's" } td { pre { (Raw::dangerously_create(&cpu_info)) } } }
+                    tr { th { "CPU's" } td { pre { (PreEscaped(&cpu_info)) } } }
                     tr {
                         th { "Network Interfaces" }
                         td {
@@ -138,7 +137,7 @@ pub async fn osinfo(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
                                 @if network_info.is_empty() {
                                     "No network interfaces found"
                                 } @else {
-                                    (Raw::dangerously_create(&network_info))
+                                    (PreEscaped(&network_info))
                                 }
                             }
                         }
@@ -163,7 +162,7 @@ pub async fn osinfo(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
         }
     };
 
-    Ok(ctx.html(markup.render().as_inner()))
+    Ok(ctx.html(markup.into_string()))
 }
 
 /// API status endpoint - returns JSON status information
