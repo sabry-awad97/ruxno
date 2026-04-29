@@ -12,11 +12,13 @@
 //!
 //! // 100 requests per second per IP
 //! let rate_limiter = RateLimitMiddleware::per_second(100);
-//! app.use_middleware("*", rate_limiter.middleware());
+//! app.use_middleware("*", rate_limiter);
 //! ```
 
+use async_trait::async_trait;
 use governor::{Quota, RateLimiter};
-use ruxno::{Context, Next, Response};
+use ruxno::core::{CoreError, Middleware, Next, StatusCode};
+use ruxno::{Context, Response};
 use std::net::IpAddr;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -25,8 +27,13 @@ use std::sync::Arc;
 ///
 /// Uses the token bucket algorithm to limit requests per IP address.
 pub struct RateLimitMiddleware {
-    limiter:
-        Arc<RateLimiter<IpAddr, governor::state::InMemoryState, governor::clock::DefaultClock>>,
+    limiter: Arc<
+        RateLimiter<
+            IpAddr,
+            governor::state::keyed::DashMapStateStore<IpAddr>,
+            governor::clock::DefaultClock,
+        >,
+    >,
 }
 
 impl RateLimitMiddleware {
@@ -40,7 +47,7 @@ impl RateLimitMiddleware {
     pub fn per_second(requests: u32) -> Self {
         let quota = Quota::per_second(NonZeroU32::new(requests).unwrap());
         Self {
-            limiter: Arc::new(RateLimiter::keyed(quota)),
+            limiter: Arc::new(RateLimiter::dashmap(quota)),
         }
     }
 
@@ -54,7 +61,7 @@ impl RateLimitMiddleware {
     pub fn per_minute(requests: u32) -> Self {
         let quota = Quota::per_minute(NonZeroU32::new(requests).unwrap());
         Self {
-            limiter: Arc::new(RateLimiter::keyed(quota)),
+            limiter: Arc::new(RateLimiter::dashmap(quota)),
         }
     }
 
@@ -68,47 +75,36 @@ impl RateLimitMiddleware {
     pub fn per_hour(requests: u32) -> Self {
         let quota = Quota::per_hour(NonZeroU32::new(requests).unwrap());
         Self {
-            limiter: Arc::new(RateLimiter::keyed(quota)),
+            limiter: Arc::new(RateLimiter::dashmap(quota)),
         }
     }
+}
 
-    /// Get the middleware function
-    ///
-    /// Returns a closure that can be used with `app.use_middleware()`.
-    pub fn middleware<E>(
-        &self,
-    ) -> impl Fn(
-        Context<E>,
-        Next<E>,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Response, ruxno::CoreError>> + Send + 'static>,
-    >
-    where
-        E: Send + Sync + 'static,
-    {
-        let limiter = self.limiter.clone();
-        move |ctx: Context<E>, next: Next<E>| {
-            let limiter = limiter.clone();
-            Box::pin(async move {
-                // Extract IP from request
-                let ip = extract_ip(&ctx);
+#[async_trait]
+impl<E> Middleware<E> for RateLimitMiddleware
+where
+    E: Send + Sync + 'static,
+{
+    async fn process(&self, ctx: Context<E>, next: Next<E>) -> Result<Response, CoreError> {
+        // Extract IP from request
+        let ip = extract_ip(&ctx);
 
-                // Check rate limit
-                if limiter.check_key(&ip).is_err() {
-                    // Rate limit exceeded
-                    return Ok(ctx.status(429).with_header("retry-after", "60").json(
-                        &serde_json::json!({
-                            "error": "Too Many Requests",
-                            "message": "Rate limit exceeded. Please try again later.",
-                            "retry_after": 60
-                        }),
-                    ));
-                }
+        // Check rate limit
+        if self.limiter.check_key(&ip).is_err() {
+            // Rate limit exceeded
+            let error_body = serde_json::json!({
+                "error": "Too Many Requests",
+                "message": "Rate limit exceeded. Please try again later.",
+                "retry_after": 60
+            });
 
-                // Continue to next middleware/handler
-                next.run(ctx).await
-            })
+            return Ok(Response::json(&error_body)
+                .with_status(StatusCode::TOO_MANY_REQUESTS)
+                .with_header("retry-after", "60"));
         }
+
+        // Continue to next middleware/handler
+        next.run(ctx).await
     }
 }
 

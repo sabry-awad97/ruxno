@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ruxno", "ruxno-middleware"]
+members = ["ruxno", "ruxno-middleware", "examples/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -40,6 +40,9 @@ multer = "3.1"
 
 # Testing dependencies
 criterion = "0.5"
+
+ruxno = { path = "./ruxno" }
+ruxno-middleware = { path = "./ruxno-middleware", features = ["full"] }
 
 [profile.release]
 opt-level = 3

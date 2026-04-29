@@ -14,7 +14,7 @@ rust-version = "1.85"
 
 [dependencies]
 # Core framework
-ruxno = { path = "../ruxno" }
+ruxno = { workspace = true }
 
 # Common dependencies
 tokio = { workspace = true }
@@ -56,7 +56,7 @@ default = []
 # Individual middleware features
 rate-limit = ["governor"]
 rate-limit-redis = ["governor", "redis"]
-cors = ["tower", "tower-http"]
+cors = []
 compression = ["flate2", "brotli"]
 auth = ["jsonwebtoken"]
 logger = ["tracing"]

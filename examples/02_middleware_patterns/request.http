@@ -1,0 +1,188 @@
+### Middleware Patterns Example - REST Client Tests
+### Server: http://localhost:3000
+
+@baseUrl = http://localhost:3000
+
+###############################################################################
+# Routes with ONLY Global Middleware
+###############################################################################
+
+### GET / - Home route (global middleware only)
+# Expected: Global middleware logs only
+GET {{baseUrl}}/
+Accept: application/json
+
+### GET /public - Public route (global middleware only)
+# Expected: Global middleware logs only
+GET {{baseUrl}}/public
+Accept: application/json
+
+###############################################################################
+# GET Routes on /api/* (Global middleware only)
+###############################################################################
+
+### GET /api/users - List users (global middleware only)
+# Expected: Global middleware logs only (no validation middleware)
+GET {{baseUrl}}/api/users
+Accept: application/json
+
+### GET /api/posts - List posts (global middleware only)
+# Expected: Global middleware logs only (no validation middleware)
+GET {{baseUrl}}/api/posts
+Accept: application/json
+
+###############################################################################
+# POST Routes on /api/* (Global + Validation middleware)
+###############################################################################
+
+### POST /api/users - Create user (global + validation middleware)
+# Expected: Both global AND validation middleware logs
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Alice",
+  "email": "alice@example.com"
+}
+
+### POST /api/users - Create another user
+# Expected: Both global AND validation middleware logs
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Bob",
+  "email": "bob@example.com"
+}
+
+###############################################################################
+# Demonstrate Middleware Pattern Differences
+###############################################################################
+
+### GET /api/users - No validation middleware (wrong method)
+# Expected: Only global middleware (validation is POST-only)
+GET {{baseUrl}}/api/users
+
+### POST /api/users - Has validation middleware (correct method + path)
+# Expected: Global + validation middleware
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Charlie",
+  "email": "charlie@example.com"
+}
+
+### POST / - No validation middleware (wrong path)
+# Expected: Only global middleware (validation is /api/* only)
+POST {{baseUrl}}/
+Content-Type: application/json
+
+{
+  "data": "test"
+}
+
+###############################################################################
+# Multiple Requests to See Middleware Execution Order
+###############################################################################
+
+### Sequence 1: GET / (global only)
+GET {{baseUrl}}/
+
+### Sequence 2: GET /api/users (global only)
+GET {{baseUrl}}/api/users
+
+### Sequence 3: POST /api/users (global + validation)
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Test User",
+  "email": "test@example.com"
+}
+
+### Sequence 4: GET /public (global only)
+GET {{baseUrl}}/public
+
+###############################################################################
+# Test Different HTTP Methods on /api/*
+###############################################################################
+
+### GET /api/users - Should NOT trigger validation middleware
+GET {{baseUrl}}/api/users
+
+### POST /api/users - SHOULD trigger validation middleware
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Method Test",
+  "email": "method@example.com"
+}
+
+### PUT /api/users - Should NOT trigger validation middleware (POST only)
+PUT {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Updated User",
+  "email": "updated@example.com"
+}
+
+### DELETE /api/users - Should NOT trigger validation middleware (POST only)
+DELETE {{baseUrl}}/api/users
+
+###############################################################################
+# Test Path Patterns
+###############################################################################
+
+### POST /api/users - Matches /api/* pattern
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{"test": "data"}
+
+### POST /api/posts - Also matches /api/* pattern
+POST {{baseUrl}}/api/posts
+Content-Type: application/json
+
+{"test": "data"}
+
+### POST /api/anything - Should match /api/* pattern
+POST {{baseUrl}}/api/anything
+Content-Type: application/json
+
+{"test": "data"}
+
+### POST /other - Does NOT match /api/* pattern
+POST {{baseUrl}}/other
+Content-Type: application/json
+
+{"test": "data"}
+
+###############################################################################
+# Rapid Fire Testing (observe middleware execution)
+###############################################################################
+
+### Multiple GET requests (global middleware only)
+GET {{baseUrl}}/
+###
+GET {{baseUrl}}/public
+###
+GET {{baseUrl}}/api/users
+
+### Multiple POST requests (global + validation middleware)
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{"name": "User 1"}
+###
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{"name": "User 2"}
+###
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{"name": "User 3"}

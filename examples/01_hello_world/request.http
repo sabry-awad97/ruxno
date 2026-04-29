@@ -1,0 +1,142 @@
+### Hello World Example - REST Client Tests
+### Server: http://127.0.0.1:3000
+
+@baseUrl = http://127.0.0.1:3000
+
+###############################################################################
+# Basic Routes
+###############################################################################
+
+### GET / - Home route
+GET {{baseUrl}}/
+Accept: application/json
+
+### GET /users - List all users
+GET {{baseUrl}}/users
+Accept: application/json
+
+### POST /users - Create a new user
+POST {{baseUrl}}/users
+Content-Type: application/json
+
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "age": 30
+}
+
+### GET /users/:id - Get user by ID
+GET {{baseUrl}}/users/123
+Accept: application/json
+
+### PUT /users/:id - Update user
+PUT {{baseUrl}}/users/123
+Content-Type: application/json
+
+{
+  "name": "John Doe Updated",
+  "email": "john.updated@example.com",
+  "age": 31
+}
+
+### DELETE /users/:id - Delete user
+DELETE {{baseUrl}}/users/123
+Accept: application/json
+
+###############################################################################
+# Admin Routes (with admin middleware)
+###############################################################################
+
+### GET /admin - Admin page
+GET {{baseUrl}}/admin
+Accept: application/json
+
+### POST /admin - Admin action
+POST {{baseUrl}}/admin
+Content-Type: application/json
+
+{
+  "action": "update_settings",
+  "settings": {
+    "maintenance_mode": false
+  }
+}
+
+###############################################################################
+# API Routes (with /api/* middleware)
+###############################################################################
+
+### GET /api/status - API status
+GET {{baseUrl}}/api/status
+Accept: application/json
+
+###############################################################################
+# Test Different Content Types
+###############################################################################
+
+### POST /users - Create user with form data
+POST {{baseUrl}}/users
+Content-Type: application/x-www-form-urlencoded
+
+name=Jane Doe&email=jane@example.com&age=25
+
+### GET / - Home with custom headers
+GET {{baseUrl}}/
+Accept: application/json
+User-Agent: REST-Client-Test
+X-Custom-Header: test-value
+
+###############################################################################
+# Test Error Handling
+###############################################################################
+
+### GET /nonexistent - 404 Not Found
+GET {{baseUrl}}/nonexistent
+Accept: application/json
+
+###############################################################################
+# Test Query Parameters
+###############################################################################
+
+### GET /users - List users with query params
+GET {{baseUrl}}/users?page=1&limit=10&sort=name
+Accept: application/json
+
+### GET /users/:id - Get user with query params
+GET {{baseUrl}}/users/123?include=profile,settings
+Accept: application/json
+
+###############################################################################
+# Performance Testing
+###############################################################################
+
+### GET / - Multiple rapid requests (test rate limiting)
+GET {{baseUrl}}/
+###
+GET {{baseUrl}}/
+###
+GET {{baseUrl}}/
+###
+GET {{baseUrl}}/
+###
+GET {{baseUrl}}/
+
+###############################################################################
+# CORS Testing
+###############################################################################
+
+### OPTIONS /users - CORS preflight
+OPTIONS {{baseUrl}}/users
+Origin: https://example.com
+Access-Control-Request-Method: POST
+Access-Control-Request-Headers: Content-Type
+
+### POST /users - CORS actual request
+POST {{baseUrl}}/users
+Origin: https://example.com
+Content-Type: application/json
+
+{
+  "name": "CORS Test User",
+  "email": "cors@example.com"
+}
