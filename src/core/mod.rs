@@ -12,6 +12,3 @@ pub use error::CoreError;
 pub use handler::{BoxedHandler, Handler};
 pub use middleware::{Middleware, Next};
 pub use types::{Method, StatusCode};
-
-// Internal utilities (not part of public API)
-pub(crate) use handler::make_handler;
