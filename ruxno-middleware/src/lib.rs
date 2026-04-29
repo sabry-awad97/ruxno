@@ -31,53 +31,51 @@
 //!
 //! ### Rate Limiting
 //!
-//! ```rust,ignore
-//! use ruxno::App;
-//! use ruxno_middleware::RateLimitMiddleware;
+//! ```
+//! use ruxno_middleware::{rate_limit, global_rate_limit, RateLimit, RateLimitMode};
+//! use std::time::Duration;
 //!
-//! let mut app = App::new();
+//! // Simple per-IP rate limiting
+//! let per_ip_limiter = rate_limit::<()>(100); // 100 requests per second per IP
 //!
-//! // 100 requests per second per IP
-//! let rate_limiter = RateLimitMiddleware::per_second(100);
-//! app.use_middleware("*", rate_limiter.middleware());
+//! // Global rate limiting
+//! let global_limiter = global_rate_limit::<()>(1000, Duration::from_secs(60)); // 1000 requests per minute globally
+//!
+//! // Advanced configuration with builder pattern
+//! let advanced_limiter = RateLimit::new(100, Duration::from_secs(60))
+//!     .mode(RateLimitMode::PerIp)
+//!     .with_burst_size(150)
+//!     .with_error_message("Custom rate limit message")
+//!     .with_retry_after(Duration::from_secs(300));
 //! ```
 //!
 //! ### CORS
 //!
-//! ```rust,ignore
-//! use ruxno::App;
+//! ```ignore
 //! use ruxno_middleware::{cors, CorsMiddleware};
 //!
-//! let mut app = App::new();
-//!
 //! // Simple usage (development only - allows all origins)
-//! app.r#use(cors());
+//! let simple_cors = cors();
 //!
 //! // Production configuration
-//! app.r#use(
-//!     CorsMiddleware::new()
-//!         .allow_origin("https://example.com")
-//!         .allow_methods(&["GET", "POST", "PUT", "DELETE"])
-//!         .allow_headers(&["Content-Type", "Authorization"])
-//!         .allow_credentials(true)
-//!         .max_age(3600)
-//! );
+//! let production_cors = CorsMiddleware::new()
+//!     .allow_origin("https://example.com")
+//!     .allow_methods(&["GET", "POST", "PUT", "DELETE"])
+//!     .allow_headers(&["Content-Type", "Authorization"])
+//!     .allow_credentials(true)
+//!     .max_age(3600);
 //! ```
 //!
 //! ### Pretty JSON
 //!
-//! ```rust,ignore
-//! use ruxno::App;
-//! use ruxno_middleware::pretty_json;
-//!
-//! let mut app = App::new();
+//! ```ignore
+//! use ruxno_middleware::{pretty_json, PrettyJsonMiddleware};
 //!
 //! // Simple usage with default settings (2-space indentation)
-//! app.r#use(pretty_json());
+//! let simple_pretty = pretty_json();
 //!
 //! // Or with custom configuration
-//! use ruxno_middleware::PrettyJsonMiddleware;
-//! app.r#use(PrettyJsonMiddleware::with_indent(4));
+//! let custom_pretty = PrettyJsonMiddleware::with_indent(4);
 //! ```
 
 #![warn(missing_docs)]
@@ -111,7 +109,9 @@ pub mod pretty_json;
 
 // Re-exports for convenience
 #[cfg(feature = "rate-limit")]
-pub use rate_limit::RateLimitMiddleware;
+pub use rate_limit::{
+    global_rate_limit, rate_limit, RateLimit, RateLimitMiddleware, RateLimitMode,
+};
 
 #[cfg(feature = "cors")]
 pub use cors::{cors, CorsMiddleware};
