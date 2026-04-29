@@ -10,11 +10,14 @@
 mod util;
 
 use ruxno::prelude::*;
-use ruxno_middleware::pretty_json;
+use ruxno_middleware::{cors, pretty_json};
 
 #[tokio::main]
 async fn main() {
     let mut app = App::new();
+
+    // CORS middleware - allow cross-origin requests (development mode)
+    app.r#use(cors());
 
     // Pretty JSON middleware - formats all JSON responses
     app.r#use(pretty_json());
@@ -138,7 +141,7 @@ async fn main() {
             "environment": "development",
             "features": {
                 "pretty_json": true,
-                "rate_limiting": true,
+                "rate_limiting": false,
                 "cors": true
             }
         })))

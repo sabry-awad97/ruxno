@@ -61,7 +61,11 @@ fn print_features() {
         },
         Feature {
             name: "Rate limiting",
-            status: "✓ Available",
+            status: "○ Not configured",
+        },
+        Feature {
+            name: "CORS",
+            status: "✓ Enabled (permissive)",
         },
     ];
 

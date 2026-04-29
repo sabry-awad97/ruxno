@@ -46,16 +46,22 @@
 //!
 //! ```rust,ignore
 //! use ruxno::App;
-//! use ruxno_middleware::CorsMiddleware;
+//! use ruxno_middleware::{cors, CorsMiddleware};
 //!
 //! let mut app = App::new();
 //!
-//! let cors = CorsMiddleware::new()
-//!     .allow_origin("https://example.com")
-//!     .allow_methods(vec!["GET", "POST"])
-//!     .allow_credentials(true);
+//! // Simple usage (development only - allows all origins)
+//! app.r#use(cors());
 //!
-//! app.use_middleware("*", cors.middleware());
+//! // Production configuration
+//! app.r#use(
+//!     CorsMiddleware::new()
+//!         .allow_origin("https://example.com")
+//!         .allow_methods(&["GET", "POST", "PUT", "DELETE"])
+//!         .allow_headers(&["Content-Type", "Authorization"])
+//!         .allow_credentials(true)
+//!         .max_age(3600)
+//! );
 //! ```
 //!
 //! ### Pretty JSON
@@ -108,7 +114,7 @@ pub mod pretty_json;
 pub use rate_limit::RateLimitMiddleware;
 
 #[cfg(feature = "cors")]
-pub use cors::CorsMiddleware;
+pub use cors::{cors, CorsMiddleware};
 
 #[cfg(feature = "compression")]
 pub use compression::CompressionMiddleware;

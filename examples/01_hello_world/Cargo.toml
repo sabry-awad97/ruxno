@@ -20,6 +20,7 @@ ruxno = { workspace = true }
 ruxno-middleware = { workspace = true, features = [
     "rate-limit",
     "pretty-json",
+    "cors",
 ] }
 
 # Runtime
