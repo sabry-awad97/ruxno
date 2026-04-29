@@ -38,3 +38,4 @@ sysinfo = "0.38.4"
 http = "1.0"
 async-trait = { workspace = true }
 bytes = { workspace = true }
+hypertext = "0.12.1"

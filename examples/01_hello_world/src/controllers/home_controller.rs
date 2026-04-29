@@ -4,41 +4,45 @@
 //! Provides HTML responses similar to the Node.js HTTP sniffer example.
 
 use crate::config::AppEnv;
+use hypertext::prelude::*;
+use hypertext::{Buffer, Lazy, Raw};
+use ruxno::core::CoreError;
 use ruxno::prelude::*;
 use sysinfo::{Disks, Networks, System};
 
 /// Home page handler - returns HTML page
-pub async fn index(ctx: Context<AppEnv>) -> Result<Response, RuxnoError> {
-    let html = r#"
-<html>
-<head>
-    <title>Hello, world!</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        h1 { color: #333; }
-        a { color: #0066cc; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .info { background: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0; }
-    </style>
-</head>
-<body>
-    <h1>Hello, world!</h1>
-    <div class="info">
-        <p>Welcome to the Ruxno HTTP Sniffer Example!</p>
-        <p>This server demonstrates HTTP request sniffing similar to Node.js utilities.</p>
-    </div>
-    <p><a href='/osinfo'>OS Info</a></p>
-    <p><a href='/users'>User API</a></p>
-    <p><a href='/api/status'>API Status</a></p>
-    <p><a href='/admin'>Admin Dashboard</a></p>
-</body>
-</html>"#;
+pub async fn index(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
+    let markup = maud! {
+        html {
+            head {
+                title { "Hello, world!" }
+                style {
+                    "body { font-family: Arial, sans-serif; margin: 40px; }"
+                    "h1 { color: #333; }"
+                    "a { color: #0066cc; text-decoration: none; }"
+                    "a:hover { text-decoration: underline; }"
+                    ".info { background: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0; }"
+                }
+            }
+            body {
+                h1 { "Hello, world!" }
+                div.info {
+                    p { "Welcome to the Ruxno HTTP Sniffer Example!" }
+                    p { "This server demonstrates HTTP request sniffing similar to Node.js utilities." }
+                }
+                p { a href="/osinfo" { "OS Info" } }
+                p { a href="/users" { "User API" } }
+                p { a href="/api/status" { "API Status" } }
+                p { a href="/admin" { "Admin Dashboard" } }
+            }
+        }
+    };
 
-    Ok(ctx.html(html))
+    Ok(ctx.html(markup.render().as_inner()))
 }
 
 /// OS Info page handler - returns system information in HTML
-pub async fn osinfo(ctx: Context<AppEnv>) -> Result<Response, RuxnoError> {
+pub async fn osinfo(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
     let mut sys = System::new_all();
     sys.refresh_all();
 
@@ -95,62 +99,71 @@ pub async fn osinfo(ctx: Context<AppEnv>) -> Result<Response, RuxnoError> {
     // Format uptime
     let uptime_formatted = format_uptime(uptime);
 
-    let html = format!(
-        r#"
-<html>
-<head>
-    <title>Operating System Info</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        h1 {{ color: #333; }}
-        table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
-        th, td {{ border: 1px solid #ddd; padding: 12px; text-align: left; }}
-        th {{ background-color: #f2f2f2; font-weight: bold; }}
-        pre {{ background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; }}
-        .back-link {{ margin: 20px 0; }}
-        a {{ color: #0066cc; text-decoration: none; }}
-        a:hover {{ text-decoration: underline; }}
-    </style>
-</head>
-<body>
-    <h1>Operating System Info</h1>
-    <table>
-        <tr><th>Host Name</th><td>{hostname}</td></tr>
-        <tr><th>OS Type</th><td>{os_name} {os_version}</td></tr>
-        <tr><th>Kernel Version</th><td>{kernel_version}</td></tr>
-        <tr><th>Uptime</th><td>{uptime_formatted}</td></tr>
-        <tr><th>Memory</th><td>Total: {total_memory_formatted}<br>Used: {used_memory_formatted}<br>Available: {available_memory_formatted}</td></tr>
-        <tr><th>CPU's</th><td><pre>{cpu_info}</pre></td></tr>
-        <tr><th>Network Interfaces</th><td><pre>{network_info}</pre></td></tr>
-        <tr><th>Disks</th><td><pre>{disk_info}</pre></td></tr>
-    </table>
-    <div class="back-link">
-        <a href="/">← Back to Home</a>
-    </div>
-</body>
-</html>"#,
-        hostname = hostname,
-        os_name = os_name,
-        os_version = os_version,
-        kernel_version = kernel_version,
-        uptime_formatted = uptime_formatted,
-        total_memory_formatted = format_bytes(total_memory),
-        used_memory_formatted = format_bytes(used_memory),
-        available_memory_formatted = format_bytes(available_memory),
-        cpu_info = cpu_info,
-        network_info = if network_info.is_empty() {
-            "No network interfaces found".to_string()
-        } else {
-            network_info
-        },
-        disk_info = if disk_info.is_empty() {
-            "No disk information available".to_string()
-        } else {
-            disk_info
+    let markup = maud! {
+        html {
+            head {
+                title { "Operating System Info" }
+                style {
+                    "body { font-family: Arial, sans-serif; margin: 40px; }"
+                    "h1 { color: #333; }"
+                    "table { border-collapse: collapse; width: 100%; margin: 20px 0; }"
+                    "th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }"
+                    "th { background-color: #f2f2f2; font-weight: bold; }"
+                    "pre { background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; }"
+                    ".back-link { margin: 20px 0; }"
+                    "a { color: #0066cc; text-decoration: none; }"
+                    "a:hover { text-decoration: underline; }"
+                }
+            }
+            body {
+                h1 { "Operating System Info" }
+                table {
+                    tr { th { "Host Name" } td { (hostname) } }
+                    tr { th { "OS Type" } td { (os_name) " " (os_version) } }
+                    tr { th { "Kernel Version" } td { (kernel_version) } }
+                    tr { th { "Uptime" } td { (uptime_formatted) } }
+                    tr {
+                        th { "Memory" }
+                        td {
+                            "Total: " (format_bytes(total_memory)) br;
+                            "Used: " (format_bytes(used_memory)) br;
+                            "Available: " (format_bytes(available_memory))
+                        }
+                    }
+                    tr { th { "CPU's" } td { pre { (Raw::dangerously_create(&cpu_info)) } } }
+                    tr {
+                        th { "Network Interfaces" }
+                        td {
+                            pre {
+                                @if network_info.is_empty() {
+                                    "No network interfaces found"
+                                } @else {
+                                    (Raw::dangerously_create(&network_info))
+                                }
+                            }
+                        }
+                    }
+                    tr {
+                        th { "Disks" }
+                        td {
+                            pre {
+                                @if disk_info.is_empty() {
+                                    "No disk information available"
+                                } @else {
+                                    (disk_info)
+                                }
+                            }
+                        }
+                    }
+                }
+                div.back-link {
+                    a href="/" { "← Back to Home" }
+                }
+            }
         }
-    );
+    };
 
-    Ok(ctx.html(&html))
+    Ok(ctx.html(markup.render().as_inner()))
 }
 
 /// API status endpoint - returns JSON status information
