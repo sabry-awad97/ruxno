@@ -166,15 +166,25 @@ pub fn to_hyper_response(res: Response) -> hyper::Response<http_body_util::Full<
     let body = http_body_util::Full::new(body_bytes);
 
     // Build and return response
-    builder.body(body).unwrap_or_else(|_| {
-        // Fallback error response if building fails
-        hyper::Response::builder()
-            .status(hyper::StatusCode::INTERNAL_SERVER_ERROR)
-            .body(http_body_util::Full::new(Bytes::from(
-                "Failed to build response",
-            )))
-            .unwrap()
-    })
+    match builder.body(body) {
+        Ok(response) => response,
+        Err(e) => {
+            // Log the error for debugging
+            eprintln!("⚠️  Failed to build response: {}", e);
+
+            // Return a minimal safe response without using unwrap
+            // This construction is guaranteed to succeed with valid inputs
+            let mut response = hyper::Response::new(http_body_util::Full::new(Bytes::from(
+                r#"{"error":"Internal Server Error","message":"Failed to build response"}"#,
+            )));
+            *response.status_mut() = hyper::StatusCode::INTERNAL_SERVER_ERROR;
+            response.headers_mut().insert(
+                hyper::header::CONTENT_TYPE,
+                hyper::header::HeaderValue::from_static("application/json"),
+            );
+            response
+        }
+    }
 }
 
 /// Parse query parameters from URI query string
