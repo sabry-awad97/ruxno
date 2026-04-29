@@ -241,7 +241,7 @@ impl<E> Context<E> {
     /// Ok(ctx.not_found())
     /// ```
     pub fn not_found(&self) -> Response {
-        Response::text("Not Found").with_status(StatusCode::NOT_FOUND)
+        Response::text("Not Found").with_status_code(StatusCode::NOT_FOUND)
     }
 
     /// Return empty response with status
@@ -259,7 +259,7 @@ impl<E> Context<E> {
     ///     .with_header("location", "/users/123"))
     /// ```
     pub fn status(&self, status: StatusCode) -> Response {
-        Response::new().with_status(status)
+        Response::new().with_status_code(status)
     }
 }
 

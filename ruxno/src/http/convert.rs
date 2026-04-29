@@ -595,7 +595,7 @@ mod tests {
     #[test]
     fn test_to_hyper_response_with_status() {
         let domain_res = Response::new()
-            .with_status(StatusCode::NOT_FOUND)
+            .with_status_code(StatusCode::NOT_FOUND)
             .with_body("Not found");
         let hyper_res = to_hyper_response(domain_res);
 
@@ -615,7 +615,7 @@ mod tests {
 
     #[test]
     fn test_to_hyper_response_empty_body() {
-        let domain_res = Response::new().with_status(StatusCode::NO_CONTENT);
+        let domain_res = Response::new().with_status_code(StatusCode::NO_CONTENT);
         let hyper_res = to_hyper_response(domain_res);
 
         assert_eq!(hyper_res.status(), StatusCode::NO_CONTENT);

@@ -104,7 +104,7 @@ impl SseStream {
 
         // Create response with SSE headers and streaming body
         Response::new()
-            .with_status(StatusCode::OK)
+            .with_status_code(StatusCode::OK)
             .with_header("Content-Type", "text/event-stream")
             .with_header("Cache-Control", "no-cache")
             .with_header("Connection", "keep-alive")

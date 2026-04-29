@@ -202,7 +202,7 @@ fn error_to_response(err: CoreError, production_mode: bool) -> crate::domain::Re
         "error_id": error_id,
     });
 
-    Response::json(&error_body).with_status(status)
+    Response::json(&error_body).with_status_code(status)
 }
 
 /// Generate a unique error ID for correlation

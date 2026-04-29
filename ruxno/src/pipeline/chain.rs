@@ -361,12 +361,12 @@ mod tests {
                 // Check for auth header
                 if ctx.req.header("Authorization").is_none() {
                     return Ok(Response::new()
-                        .with_status(StatusCode::UNAUTHORIZED)
+                        .with_status_code(StatusCode::UNAUTHORIZED)
                         .with_body("Unauthorized"));
                 }
                 // Don't call next - short circuit
                 Ok(Response::new()
-                    .with_status(StatusCode::FORBIDDEN)
+                    .with_status_code(StatusCode::FORBIDDEN)
                     .with_body("Forbidden"))
             }
         }

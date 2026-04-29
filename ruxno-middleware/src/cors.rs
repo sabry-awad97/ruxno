@@ -310,11 +310,11 @@ impl CorsMiddleware {
         // Check if origin is allowed
         if let Some(origin) = origin {
             if !self.is_origin_allowed(origin) {
-                return Response::new().with_status(StatusCode::FORBIDDEN);
+                return Response::new().with_status_code(StatusCode::FORBIDDEN);
             }
         }
 
-        let mut response = Response::new().with_status(StatusCode::NO_CONTENT);
+        let mut response = Response::new().with_status_code(StatusCode::NO_CONTENT);
 
         // Add CORS headers
         if let Some(origin) = origin {

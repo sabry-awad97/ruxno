@@ -171,7 +171,7 @@ impl Response {
             Err(_) => {
                 // Return 500 error if serialization fails
                 Self::new()
-                    .with_status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .with_status_code(StatusCode::INTERNAL_SERVER_ERROR)
                     .with_body("Failed to serialize JSON")
             }
         }
@@ -209,7 +209,7 @@ impl Response {
     /// let res = Response::redirect("/login");
     ///
     /// // Permanent redirect (301)
-    /// let res = Response::redirect("/new-url").with_status(StatusCode::MOVED_PERMANENTLY);
+    /// let res = Response::redirect("/new-url").with_status_code(StatusCode::MOVED_PERMANENTLY);
     /// ```
     pub fn redirect(location: impl Into<String>) -> Self {
         let mut headers = Headers::new();
@@ -222,14 +222,30 @@ impl Response {
         }
     }
 
-    /// Set status code (builder pattern)
+    /// Set status code from u16 (builder pattern)
+    ///
+    /// Convenience method for setting status code using numeric values.
+    /// Falls back to 500 Internal Server Error if the status code is invalid.
     ///
     /// # Examples
     ///
     /// ```rust,ignore
-    /// let res = Response::new().with_status(StatusCode::CREATED);
+    /// let res = Response::new().with_status(201);
+    /// let res = Response::new().with_status(404);
     /// ```
-    pub fn with_status(mut self, status: StatusCode) -> Self {
+    pub fn with_status(mut self, status: u16) -> Self {
+        self.status = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        self
+    }
+
+    /// Set status code using StatusCode enum (builder pattern)
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let res = Response::new().with_status_code(StatusCode::CREATED);
+    /// ```
+    pub fn with_status_code(mut self, status: StatusCode) -> Self {
         self.status = status;
         self
     }
@@ -459,15 +475,34 @@ mod tests {
 
     #[test]
     fn test_response_redirect_permanent() {
-        let res = Response::redirect("/new-url").with_status(StatusCode::MOVED_PERMANENTLY);
+        let res = Response::redirect("/new-url").with_status_code(StatusCode::MOVED_PERMANENTLY);
         assert_eq!(res.status(), StatusCode::MOVED_PERMANENTLY);
         assert_eq!(res.headers().get("location").unwrap(), "/new-url");
     }
 
     #[test]
     fn test_response_with_status() {
-        let res = Response::new().with_status(StatusCode::CREATED);
+        let res = Response::new().with_status(201);
         assert_eq!(res.status(), StatusCode::CREATED);
+    }
+
+    #[test]
+    fn test_response_with_status_code() {
+        let res = Response::new().with_status_code(StatusCode::CREATED);
+        assert_eq!(res.status(), StatusCode::CREATED);
+
+        let res = Response::new().with_status_code(StatusCode::NOT_FOUND);
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+        let res = Response::new().with_status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn test_response_with_status_invalid() {
+        // Invalid status code should fall back to 500
+        let res = Response::new().with_status(999);
+        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[test]
@@ -506,7 +541,7 @@ mod tests {
     #[test]
     fn test_response_builder_pattern() {
         let res = Response::new()
-            .with_status(StatusCode::CREATED)
+            .with_status_code(StatusCode::CREATED)
             .with_header("location", "/users/123")
             .with_header("x-custom", "value")
             .with_body("User created");

@@ -33,3 +33,5 @@ serde_json = { workspace = true }
 tabled = { version = "0.20.0", features = ["ansi"] }
 reqwest = { version = "0.13.3", features = ["json"] }
 rand = "0.8"
+chrono = "0.4.44"
+sysinfo = "0.38.4"

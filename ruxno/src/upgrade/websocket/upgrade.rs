@@ -196,7 +196,7 @@ impl<E> WebSocketUpgrade<E> {
         let accept_key = self.accept_key()?;
 
         // Create 101 Switching Protocols response
-        let mut response = Response::new().with_status(http::StatusCode::SWITCHING_PROTOCOLS);
+        let mut response = Response::new().with_status_code(http::StatusCode::SWITCHING_PROTOCOLS);
 
         // Set required WebSocket headers (RFC 6455)
         response

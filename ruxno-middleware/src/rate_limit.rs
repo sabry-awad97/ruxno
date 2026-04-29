@@ -224,7 +224,7 @@ where
             });
 
             return Ok(Response::json(&error_body)
-                .with_status(StatusCode::TOO_MANY_REQUESTS)
+                .with_status_code(StatusCode::TOO_MANY_REQUESTS)
                 .with_header("retry-after", self.retry_after_secs.to_string()));
         }
 

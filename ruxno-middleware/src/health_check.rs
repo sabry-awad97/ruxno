@@ -342,7 +342,7 @@ where
                 .unwrap_or(ruxno::core::StatusCode::INTERNAL_SERVER_ERROR);
 
             return Ok(Response::new()
-                .with_status(status)
+                .with_status_code(status)
                 .with_header("content-type", "application/json")
                 .with_body(json_str));
         }

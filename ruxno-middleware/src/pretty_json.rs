@@ -229,7 +229,7 @@ where
             Ok(formatted) => {
                 // Create new response with formatted JSON
                 Ok(Response::new()
-                    .with_status(response.status())
+                    .with_status_code(response.status())
                     .with_header("content-type", "application/json")
                     .with_bytes(Bytes::from(formatted)))
             }
