@@ -267,7 +267,7 @@ where
         println!("🚀 Ruxno server listening on http://{}", local_addr);
 
         // Create service
-        let service = RuxnoService::new(Arc::clone(&self.app));
+        let service = RuxnoService::new(Arc::clone(&self.app), self.config.production_mode());
 
         // Create connection limiter semaphore if max_connections is configured
         let connection_semaphore = self

@@ -47,6 +47,9 @@ pub struct ServerConfig {
     /// Maximum concurrent connections (None = unlimited)
     max_connections: Option<usize>,
 
+    /// Production mode (hides internal error details)
+    production_mode: bool,
+
     /// Enable HTTP/1 support
     http1_enabled: bool,
 
@@ -278,6 +281,28 @@ impl ServerConfig {
         self
     }
 
+    /// Enable production mode (hides internal error details)
+    ///
+    /// In production mode:
+    /// - 5xx errors return generic messages
+    /// - Internal error details are logged server-side only
+    /// - Error IDs are generated for correlation
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ruxno::server::ServerConfig;
+    ///
+    /// let config = ServerConfig::new()
+    ///     .with_production_mode(true);
+    ///
+    /// assert!(config.production_mode());
+    /// ```
+    pub fn with_production_mode(mut self, enabled: bool) -> Self {
+        self.production_mode = enabled;
+        self
+    }
+
     /// Enable HTTP/2 support (future)
     ///
     /// # Examples
@@ -354,6 +379,11 @@ impl ServerConfig {
         self.max_connections
     }
 
+    /// Check if production mode is enabled
+    pub fn production_mode(&self) -> bool {
+        self.production_mode
+    }
+
     /// Check if HTTP/1 is enabled
     pub fn http1_enabled(&self) -> bool {
         self.http1_enabled
@@ -385,6 +415,7 @@ impl Default for ServerConfig {
             keep_alive_timeout: Some(Duration::from_secs(60)),
             shutdown_timeout: Duration::from_secs(30),
             max_connections: Some(10000), // Default: 10k concurrent connections
+            production_mode: false,       // Default: development mode (show errors)
             http1_enabled: true,
             http2_enabled: false,
             tls_config: None,

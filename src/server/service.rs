@@ -36,12 +36,14 @@ use std::sync::Arc;
 /// This service is cloneable and can be shared across multiple connections.
 pub struct RuxnoService<E = ()> {
     app: Arc<App<E>>,
+    production_mode: bool,
 }
 
 impl<E> Clone for RuxnoService<E> {
     fn clone(&self) -> Self {
         Self {
             app: Arc::clone(&self.app),
+            production_mode: self.production_mode,
         }
     }
 }
@@ -60,10 +62,13 @@ where
     /// use std::sync::Arc;
     ///
     /// let app = App::new();
-    /// let service = RuxnoService::new(Arc::new(app));
+    /// let service = RuxnoService::new(Arc::new(app), false);
     /// ```
-    pub fn new(app: Arc<App<E>>) -> Self {
-        Self { app }
+    pub fn new(app: Arc<App<E>>, production_mode: bool) -> Self {
+        Self {
+            app,
+            production_mode,
+        }
     }
 
     /// Handle a single HTTP request
@@ -101,7 +106,7 @@ where
             Ok(req) => req,
             Err(err) => {
                 // Body size limit exceeded, too many headers, or other conversion error
-                let error_response = error_to_response(err);
+                let error_response = error_to_response(err, self.production_mode);
                 return Ok(to_hyper_response(error_response));
             }
         };
@@ -111,7 +116,7 @@ where
             Ok(res) => res,
             Err(err) => {
                 // Convert error to HTTP response
-                error_to_response(err)
+                error_to_response(err, self.production_mode)
             }
         };
 
@@ -134,7 +139,23 @@ where
 /// Convert a CoreError to an HTTP Response
 ///
 /// Maps error types to appropriate HTTP status codes and error messages.
-fn error_to_response(err: CoreError) -> crate::domain::Response {
+/// In production mode, hides internal error details for 5xx errors.
+///
+/// # Arguments
+///
+/// * `err` - The error to convert
+/// * `production_mode` - Whether to hide internal error details
+///
+/// # Security
+///
+/// In production mode:
+/// - 5xx errors return generic messages (prevents information disclosure)
+/// - Full error details are logged server-side only
+/// - Error IDs are generated for correlation between logs and responses
+///
+/// In development mode:
+/// - All error details are included in responses (for debugging)
+fn error_to_response(err: CoreError, production_mode: bool) -> crate::domain::Response {
     use crate::core::StatusCode;
     use crate::domain::Response;
 
@@ -152,13 +173,53 @@ fn error_to_response(err: CoreError) -> crate::domain::Response {
         CoreError::Internal(_) | CoreError::Custom(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
 
+    // Generate error ID for correlation
+    let error_id = generate_error_id();
+
+    // Determine if this is a server error (5xx)
+    let is_server_error = err.is_server_error();
+
+    // In production mode, hide internal error details for 5xx errors
+    let error_message = if production_mode && is_server_error {
+        // Log full error server-side
+        eprintln!("🔴 [{}] Internal error: {}", error_id, err);
+
+        // Return generic message to client
+        "Internal Server Error".to_string()
+    } else {
+        // Development mode or client error - include details
+        if is_server_error {
+            // Log server errors even in development
+            eprintln!("🔴 [{}] Internal error: {}", error_id, err);
+        }
+        err.to_string()
+    };
+
     // Create error response with JSON body
     let error_body = serde_json::json!({
-        "error": err.to_string(),
+        "error": error_message,
         "status": status.as_u16(),
+        "error_id": error_id,
     });
 
     Response::json(&error_body).with_status(status)
+}
+
+/// Generate a unique error ID for correlation
+///
+/// Uses timestamp + random component for uniqueness.
+/// Format: `ERR-{timestamp}-{random}`
+fn generate_error_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    let random: u32 = rand::random();
+
+    format!("ERR-{:x}-{:04x}", timestamp, random & 0xFFFF)
 }
 
 #[cfg(test)]
@@ -170,7 +231,7 @@ mod tests {
     #[tokio::test]
     async fn test_service_creation() {
         let app = App::new();
-        let service = RuxnoService::new(Arc::new(app));
+        let service = RuxnoService::new(Arc::new(app), false);
         // Service should be created successfully
         assert!(Arc::strong_count(service.app()) >= 1);
     }
@@ -178,7 +239,7 @@ mod tests {
     #[tokio::test]
     async fn test_service_clone() {
         let app = App::new();
-        let service1 = RuxnoService::new(Arc::new(app));
+        let service1 = RuxnoService::new(Arc::new(app), false);
         let service2 = service1.clone();
 
         // Both services should point to the same app
@@ -188,7 +249,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_to_response_not_found() {
         let err = CoreError::NotFound("Route not found".to_string());
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
@@ -196,7 +257,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_to_response_bad_request() {
         let err = CoreError::BadRequest("Invalid input".to_string());
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -204,7 +265,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_to_response_method_not_allowed() {
         let err = CoreError::MethodNotAllowed("POST not allowed".to_string());
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
 
         assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
@@ -212,7 +273,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_to_response_internal() {
         let err = CoreError::Internal("Server error".to_string());
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
 
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
@@ -220,7 +281,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_to_response_payload_too_large() {
         let err = CoreError::PayloadTooLarge("Body too large".to_string());
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
 
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
@@ -228,7 +289,7 @@ mod tests {
     #[tokio::test]
     async fn test_error_to_response_json_format() {
         let err = CoreError::NotFound("Resource not found".to_string());
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
 
         // Check that content-type is JSON
         let content_type = response.headers().get("content-type").unwrap();
@@ -239,7 +300,7 @@ mod tests {
     async fn test_service_app_accessor() {
         let app = App::new();
         let app_arc = Arc::new(app);
-        let service = RuxnoService::new(Arc::clone(&app_arc));
+        let service = RuxnoService::new(Arc::clone(&app_arc), false);
 
         assert!(Arc::ptr_eq(service.app(), &app_arc));
     }
@@ -247,7 +308,7 @@ mod tests {
     #[test]
     fn test_error_mapping_invalid_pattern() {
         let err = CoreError::InvalidPattern("Bad pattern".to_string());
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -257,14 +318,14 @@ mod tests {
             method: "GET".to_string(),
             path: "/users".to_string(),
         };
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]
     fn test_error_mapping_missing_parameter() {
         let err = CoreError::MissingParameter("id".to_string());
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -274,28 +335,111 @@ mod tests {
             name: "id".to_string(),
             reason: "not a number".to_string(),
         };
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]
     fn test_error_mapping_body_parse_error() {
         let err = CoreError::BodyParseError("Invalid JSON".to_string());
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]
     fn test_error_mapping_custom() {
         let err = CoreError::Custom("Custom error".to_string());
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[test]
     fn test_error_mapping_request_header_fields_too_large() {
         let err = CoreError::RequestHeaderFieldsTooLarge("Too many headers".to_string());
-        let response = error_to_response(err);
+        let response = error_to_response(err, false);
         assert_eq!(response.status(), StatusCode::from_u16(431).unwrap());
+    }
+
+    #[test]
+    fn test_production_mode_hides_internal_errors() {
+        let err = CoreError::Internal("Database connection failed: password=secret123".to_string());
+        let response = error_to_response(err, true); // Production mode
+
+        // Response should have generic message
+        let body = response.into_body();
+        if let crate::domain::ResponseBody::Bytes(bytes) = body {
+            let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(json["error"], "Internal Server Error");
+            assert!(json["error_id"].is_string());
+            // Should NOT contain sensitive details
+            assert!(!json["error"].as_str().unwrap().contains("password"));
+        }
+    }
+
+    #[test]
+    fn test_development_mode_shows_error_details() {
+        let err = CoreError::Internal("Database connection failed".to_string());
+        let response = error_to_response(err, false); // Development mode
+
+        // Response should have detailed message
+        let body = response.into_body();
+        if let crate::domain::ResponseBody::Bytes(bytes) = body {
+            let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert!(
+                json["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Database connection failed")
+            );
+            assert!(json["error_id"].is_string());
+        }
+    }
+
+    #[test]
+    fn test_client_errors_always_show_details() {
+        let err = CoreError::BadRequest("Invalid email format".to_string());
+        let response_prod = error_to_response(err.clone(), true);
+        let response_dev = error_to_response(err, false);
+
+        // Both should show details for client errors
+        let body_prod = response_prod.into_body();
+        let body_dev = response_dev.into_body();
+
+        if let crate::domain::ResponseBody::Bytes(bytes) = body_prod {
+            let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert!(
+                json["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Invalid email format")
+            );
+        }
+
+        if let crate::domain::ResponseBody::Bytes(bytes) = body_dev {
+            let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert!(
+                json["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Invalid email format")
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_id_format() {
+        let err = CoreError::Internal("Test error".to_string());
+        let response = error_to_response(err, false);
+
+        let body = response.into_body();
+        if let crate::domain::ResponseBody::Bytes(bytes) = body {
+            let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            let error_id = json["error_id"].as_str().unwrap();
+
+            // Should match format: ERR-{hex}-{hex}
+            assert!(error_id.starts_with("ERR-"));
+            assert!(error_id.contains('-'));
+            assert!(error_id.len() > 10); // Reasonable length check
+        }
     }
 }
