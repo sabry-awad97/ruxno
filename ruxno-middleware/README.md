@@ -81,7 +81,7 @@ app.use_middleware("*", cors.middleware());
 
 ## Contributing
 
-Contributions are welcome! Please see the main [Ruxno repository](https://github.com/yourusername/ruxno) for contribution guidelines.
+Contributions are welcome! Please see the main [Ruxno repository](https://github.com/sabry-awad97/ruxno) for contribution guidelines.
 
 ## License
 
