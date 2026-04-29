@@ -385,12 +385,10 @@ mod tests {
         let body = response.into_body();
         if let crate::domain::ResponseBody::Bytes(bytes) = body {
             let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-            assert!(
-                json["error"]
-                    .as_str()
-                    .unwrap()
-                    .contains("Database connection failed")
-            );
+            assert!(json["error"]
+                .as_str()
+                .unwrap()
+                .contains("Database connection failed"));
             assert!(json["error_id"].is_string());
         }
     }
@@ -407,22 +405,18 @@ mod tests {
 
         if let crate::domain::ResponseBody::Bytes(bytes) = body_prod {
             let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-            assert!(
-                json["error"]
-                    .as_str()
-                    .unwrap()
-                    .contains("Invalid email format")
-            );
+            assert!(json["error"]
+                .as_str()
+                .unwrap()
+                .contains("Invalid email format"));
         }
 
         if let crate::domain::ResponseBody::Bytes(bytes) = body_dev {
             let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-            assert!(
-                json["error"]
-                    .as_str()
-                    .unwrap()
-                    .contains("Invalid email format")
-            );
+            assert!(json["error"]
+                .as_str()
+                .unwrap()
+                .contains("Invalid email format"));
         }
     }
 

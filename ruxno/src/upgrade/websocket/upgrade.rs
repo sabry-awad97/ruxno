@@ -410,12 +410,10 @@ mod tests {
 
         let result = ws.accept_key();
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Invalid Sec-WebSocket-Key length")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid Sec-WebSocket-Key length"));
     }
 
     #[test]
@@ -439,12 +437,10 @@ mod tests {
 
         let result = ws.accept_key();
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Invalid Sec-WebSocket-Key length")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid Sec-WebSocket-Key length"));
     }
 
     #[test]
@@ -579,11 +575,9 @@ mod tests {
 
         let result = ws.accept_key();
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("not valid base64 encoding")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not valid base64 encoding"));
     }
 }

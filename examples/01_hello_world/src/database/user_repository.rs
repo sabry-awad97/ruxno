@@ -1,25 +1,14 @@
-//! Simple in-memory database for the hello world example
+//! User Repository
 //!
-//! This module provides a thread-safe in-memory database implementation
-//! for demonstration purposes. In a real application, you would use
-//! a proper database like PostgreSQL, MySQL, or SQLite.
+//! Contains database operations for User entities.
+//! This is the data access layer that handles all user-related database operations.
 
-use serde::{Deserialize, Serialize};
+use crate::models::User;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-use tokio::sync::Mutex;
+use std::sync::Arc;
+use tokio::sync::{Mutex, RwLock};
 
-/// User model
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct User {
-    pub id: u32,
-    pub name: String,
-    pub email: String,
-    pub role: String,
-    pub created_at: String,
-}
-
-/// Simple in-memory database
+/// In-memory user repository
 ///
 /// This is a thread-safe in-memory database implementation using
 /// `RwLock` for concurrent read access and `Mutex` for ID generation.
@@ -33,31 +22,31 @@ pub struct User {
 /// # Examples
 ///
 /// ```rust,ignore
-/// let db = InMemoryDb::new();
+/// let repo = UserRepository::new();
 ///
 /// // Create a user
-/// let user = db.create_user(
+/// let user = repo.create_user(
 ///     "John Doe".to_string(),
 ///     "john@example.com".to_string(),
 ///     "user".to_string()
 /// ).await?;
 ///
 /// // Get all users
-/// let users = db.get_all_users()?;
+/// let users = repo.get_all_users().await?;
 ///
 /// // Get user by ID
-/// let user = db.get_user(1)?;
+/// let user = repo.get_user(1).await?;
 /// ```
 #[derive(Debug, Clone)]
-pub struct InMemoryDb {
+pub struct UserRepository {
     users: Arc<RwLock<HashMap<u32, User>>>,
     next_id: Arc<Mutex<u32>>,
 }
 
-impl InMemoryDb {
-    /// Create a new in-memory database with some sample data
+impl UserRepository {
+    /// Create a new user repository with some sample data
     ///
-    /// The database is pre-populated with 3 sample users for demonstration.
+    /// The repository is pre-populated with 3 sample users for demonstration.
     pub fn new() -> Self {
         let mut users = HashMap::new();
 
@@ -103,14 +92,14 @@ impl InMemoryDb {
 
     /// Get all users
     ///
-    /// Returns a vector of all users in the database.
+    /// Returns a vector of all users in the repository.
     /// Uses a read lock, so multiple threads can call this concurrently.
     ///
     /// # Errors
     ///
     /// Returns an error if the lock is poisoned (very rare in practice).
-    pub fn get_all_users(&self) -> Result<Vec<User>, String> {
-        let users = self.users.read().map_err(|_| "Failed to read users")?;
+    pub async fn get_all_users(&self) -> Result<Vec<User>, String> {
+        let users = self.users.read().await;
         Ok(users.values().cloned().collect())
     }
 
@@ -126,8 +115,8 @@ impl InMemoryDb {
     /// # Errors
     ///
     /// Returns an error if the lock is poisoned (very rare in practice).
-    pub fn get_user(&self, id: u32) -> Result<Option<User>, String> {
-        let users = self.users.read().map_err(|_| "Failed to read users")?;
+    pub async fn get_user(&self, id: u32) -> Result<Option<User>, String> {
+        let users = self.users.read().await;
         Ok(users.get(&id).cloned())
     }
 
@@ -170,7 +159,7 @@ impl InMemoryDb {
         };
 
         // Insert the user
-        let mut users = self.users.write().map_err(|_| "Failed to write users")?;
+        let mut users = self.users.write().await;
         users.insert(id, user.clone());
 
         Ok(user)
@@ -195,14 +184,14 @@ impl InMemoryDb {
     /// # Errors
     ///
     /// Returns an error if the lock is poisoned (very rare in practice).
-    pub fn update_user(
+    pub async fn update_user(
         &self,
         id: u32,
         name: Option<String>,
         email: Option<String>,
         role: Option<String>,
     ) -> Result<Option<User>, String> {
-        let mut users = self.users.write().map_err(|_| "Failed to write users")?;
+        let mut users = self.users.write().await;
 
         if let Some(user) = users.get_mut(&id) {
             if let Some(name) = name {
@@ -222,7 +211,7 @@ impl InMemoryDb {
 
     /// Delete user
     ///
-    /// Removes a user from the database.
+    /// Removes a user from the repository.
     ///
     /// # Arguments
     ///
@@ -235,39 +224,39 @@ impl InMemoryDb {
     /// # Errors
     ///
     /// Returns an error if the lock is poisoned (very rare in practice).
-    pub fn delete_user(&self, id: u32) -> Result<bool, String> {
-        let mut users = self.users.write().map_err(|_| "Failed to write users")?;
+    pub async fn delete_user(&self, id: u32) -> Result<bool, String> {
+        let mut users = self.users.write().await;
         Ok(users.remove(&id).is_some())
     }
 
     /// Get user count
     ///
-    /// Returns the total number of users in the database.
+    /// Returns the total number of users in the repository.
     /// Useful for health checks and statistics.
     ///
     /// # Errors
     ///
     /// Returns an error if the lock is poisoned (very rare in practice).
-    pub fn get_user_count(&self) -> Result<usize, String> {
-        let users = self.users.read().map_err(|_| "Failed to read users")?;
+    pub async fn get_user_count(&self) -> Result<usize, String> {
+        let users = self.users.read().await;
         Ok(users.len())
     }
 
-    /// Check if database is healthy
+    /// Check if repository is healthy
     ///
     /// Performs a basic health check by attempting to read the user count.
-    /// This verifies that the database locks are not poisoned and the
+    /// This verifies that the repository locks are not poisoned and the
     /// data structure is accessible.
     ///
     /// # Returns
     ///
-    /// Returns `true` if the database is healthy, `false` otherwise.
-    pub fn is_healthy(&self) -> bool {
-        self.get_user_count().is_ok()
+    /// Returns `true` if the repository is healthy, `false` otherwise.
+    pub async fn is_healthy(&self) -> bool {
+        self.get_user_count().await.is_ok()
     }
 }
 
-impl Default for InMemoryDb {
+impl Default for UserRepository {
     fn default() -> Self {
         Self::new()
     }
@@ -277,22 +266,22 @@ impl Default for InMemoryDb {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_new_db_has_sample_data() {
-        let db = InMemoryDb::new();
-        let users = db.get_all_users().unwrap();
+    #[tokio::test]
+    async fn test_new_repository_has_sample_data() {
+        let repo = UserRepository::new();
+        let users = repo.get_all_users().await.unwrap();
         assert_eq!(users.len(), 3);
 
-        let alice = db.get_user(1).unwrap().unwrap();
+        let alice = repo.get_user(1).await.unwrap().unwrap();
         assert_eq!(alice.name, "Alice Johnson");
         assert_eq!(alice.role, "admin");
     }
 
     #[tokio::test]
     async fn test_create_user() {
-        let db = InMemoryDb::new();
+        let repo = UserRepository::new();
 
-        let user = db
+        let user = repo
             .create_user(
                 "Test User".to_string(),
                 "test@example.com".to_string(),
@@ -307,17 +296,18 @@ mod tests {
         assert_eq!(user.role, "user");
 
         // Verify it was actually stored
-        let stored_user = db.get_user(4).unwrap().unwrap();
+        let stored_user = repo.get_user(4).await.unwrap().unwrap();
         assert_eq!(stored_user.name, "Test User");
     }
 
-    #[test]
-    fn test_update_user() {
-        let db = InMemoryDb::new();
+    #[tokio::test]
+    async fn test_update_user() {
+        let repo = UserRepository::new();
 
         // Update Alice's name
-        let updated = db
+        let updated = repo
             .update_user(1, Some("Alice Updated".to_string()), None, None)
+            .await
             .unwrap()
             .unwrap();
 
@@ -325,49 +315,50 @@ mod tests {
         assert_eq!(updated.email, "alice@example.com"); // Should remain unchanged
 
         // Try to update non-existent user
-        let result = db
+        let result = repo
             .update_user(999, Some("Test".to_string()), None, None)
+            .await
             .unwrap();
         assert!(result.is_none());
     }
 
-    #[test]
-    fn test_delete_user() {
-        let db = InMemoryDb::new();
+    #[tokio::test]
+    async fn test_delete_user() {
+        let repo = UserRepository::new();
 
         // Delete existing user
-        assert!(db.delete_user(1).unwrap());
-        assert!(db.get_user(1).unwrap().is_none());
+        assert!(repo.delete_user(1).await.unwrap());
+        assert!(repo.get_user(1).await.unwrap().is_none());
 
         // Try to delete non-existent user
-        assert!(!db.delete_user(999).unwrap());
+        assert!(!repo.delete_user(999).await.unwrap());
     }
 
-    #[test]
-    fn test_get_user_count() {
-        let db = InMemoryDb::new();
-        assert_eq!(db.get_user_count().unwrap(), 3);
+    #[tokio::test]
+    async fn test_get_user_count() {
+        let repo = UserRepository::new();
+        assert_eq!(repo.get_user_count().await.unwrap(), 3);
 
-        db.delete_user(1).unwrap();
-        assert_eq!(db.get_user_count().unwrap(), 2);
+        repo.delete_user(1).await.unwrap();
+        assert_eq!(repo.get_user_count().await.unwrap(), 2);
     }
 
-    #[test]
-    fn test_is_healthy() {
-        let db = InMemoryDb::new();
-        assert!(db.is_healthy());
+    #[tokio::test]
+    async fn test_is_healthy() {
+        let repo = UserRepository::new();
+        assert!(repo.is_healthy().await);
     }
 
     #[tokio::test]
     async fn test_concurrent_operations() {
-        let db = Arc::new(InMemoryDb::new());
+        let repo = Arc::new(UserRepository::new());
         let mut handles = vec![];
 
         // Spawn multiple tasks that create users concurrently
         for i in 0..10 {
-            let db_clone = Arc::clone(&db);
+            let repo_clone = Arc::clone(&repo);
             let handle = tokio::spawn(async move {
-                db_clone
+                repo_clone
                     .create_user(
                         format!("User {}", i),
                         format!("user{}@example.com", i),
@@ -384,6 +375,6 @@ mod tests {
         }
 
         // Should have 3 original + 10 new = 13 users
-        assert_eq!(db.get_user_count().unwrap(), 13);
+        assert_eq!(repo.get_user_count().await.unwrap(), 13);
     }
 }

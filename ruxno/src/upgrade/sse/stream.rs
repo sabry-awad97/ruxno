@@ -233,16 +233,12 @@ mod tests {
         let item2 = event_stream.next().await.unwrap().unwrap();
         let item3 = event_stream.next().await.unwrap().unwrap();
 
-        assert!(
-            String::from_utf8(item1.to_vec())
-                .unwrap()
-                .contains("Event 1")
-        );
-        assert!(
-            String::from_utf8(item2.to_vec())
-                .unwrap()
-                .contains("custom")
-        );
+        assert!(String::from_utf8(item1.to_vec())
+            .unwrap()
+            .contains("Event 1"));
+        assert!(String::from_utf8(item2.to_vec())
+            .unwrap()
+            .contains("custom"));
         assert!(String::from_utf8(item3.to_vec()).unwrap().contains("123"));
     }
 

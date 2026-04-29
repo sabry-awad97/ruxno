@@ -239,8 +239,8 @@ pub fn to_hyper_response(res: Response) -> hyper::Response<http_body_util::Full<
 /// assert!(query.is_empty()); // Path traversal detected and dropped
 /// ```
 fn parse_query_params(query: Option<&str>) -> HashMap<String, String> {
-    const MAX_KEY_LENGTH: usize = 256;
-    const MAX_VALUE_LENGTH: usize = 4096;
+    const _MAX_KEY_LENGTH: usize = 256;
+    const _MAX_VALUE_LENGTH: usize = 4096;
 
     query
         .map(|q| {

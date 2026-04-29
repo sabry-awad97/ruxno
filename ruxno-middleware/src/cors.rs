@@ -320,7 +320,7 @@ impl CorsMiddleware {
         if let Some(origin) = origin {
             response = response.with_header(
                 "access-control-allow-origin",
-                self.get_allowed_origin(Some(origin))
+                self.get_allowed_origin(Some(origin)),
             );
         }
 

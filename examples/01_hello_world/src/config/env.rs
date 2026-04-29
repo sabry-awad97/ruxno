@@ -4,7 +4,7 @@
 //! shared resources like the database, configuration, and other
 //! services that need to be accessible throughout the application.
 
-use crate::db::InMemoryDb;
+use crate::database::UserRepository;
 
 /// Application environment containing shared resources
 ///
@@ -31,16 +31,13 @@ use crate::db::InMemoryDb;
 #[derive(Debug, Clone)]
 pub struct AppEnv {
     /// In-memory database instance
-    pub db: InMemoryDb,
+    pub db: UserRepository,
 
     /// Application name
     pub app_name: String,
 
     /// Application version
     pub version: String,
-
-    /// Environment name (development, staging, production)
-    pub environment: String,
 }
 
 impl AppEnv {
@@ -52,10 +49,9 @@ impl AppEnv {
     /// - Development environment
     pub fn new() -> Self {
         Self {
-            db: InMemoryDb::new(),
+            db: UserRepository::new(),
             app_name: "Ruxno Hello World".to_string(),
-            version: "1.0.0".to_string(),
-            environment: "development".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
 }
@@ -63,18 +59,5 @@ impl AppEnv {
 impl Default for AppEnv {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_new_env() {
-        let env = AppEnv::new();
-        assert_eq!(env.app_name, "Ruxno Hello World");
-        assert_eq!(env.version, "1.0.0");
-        assert_eq!(env.environment, "development");
     }
 }

@@ -327,12 +327,10 @@ mod tests {
 
         // Test all message types
         assert!(socket.send(Message::text("test")).await.is_ok());
-        assert!(
-            socket
-                .send(Message::binary(Bytes::from(vec![1, 2, 3])))
-                .await
-                .is_ok()
-        );
+        assert!(socket
+            .send(Message::binary(Bytes::from(vec![1, 2, 3])))
+            .await
+            .is_ok());
         assert!(socket.send(Message::ping(vec![1, 2])).await.is_ok());
         assert!(socket.send(Message::pong(vec![3, 4])).await.is_ok());
         assert!(socket.send(Message::close()).await.is_ok());
