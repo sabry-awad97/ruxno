@@ -22,13 +22,15 @@ pub struct Route {
     pub middleware: &'static str,
 }
 
-/// Middleware pattern information
+/// Middleware information with phase
 #[derive(Tabled)]
-pub struct MiddlewarePattern {
+pub struct MiddlewareInfo {
+    #[tabled(rename = "Middleware")]
+    pub name: &'static str,
+    #[tabled(rename = "Phase")]
+    pub phase: &'static str,
     #[tabled(rename = "Pattern")]
     pub pattern: &'static str,
-    #[tabled(rename = "Applies To")]
-    pub applies_to: &'static str,
 }
 
 /// Print server startup information with nice tables
@@ -37,8 +39,8 @@ pub fn print_server_info() {
     println!();
 
     print_features();
+    print_middleware();
     print_routes();
-    print_middleware_patterns();
 
     println!("💡 Tip: All JSON responses are automatically pretty-printed!");
     println!();
@@ -48,24 +50,24 @@ pub fn print_server_info() {
 fn print_features() {
     let features = vec![
         Feature {
+            name: "Unified Middleware System",
+            status: "✓ Enabled (Pre/Post routing)",
+        },
+        Feature {
             name: "Pretty JSON responses",
             status: "✓ Enabled (2-space)",
         },
         Feature {
-            name: "Global middleware logging",
+            name: "HTTP Request Sniffer",
             status: "✓ Enabled",
-        },
-        Feature {
-            name: "Path-specific middleware",
-            status: "✓ Enabled",
-        },
-        Feature {
-            name: "Rate limiting",
-            status: "○ Not configured",
         },
         Feature {
             name: "CORS",
             status: "✓ Enabled (permissive)",
+        },
+        Feature {
+            name: "Rate limiting",
+            status: "○ Not configured",
         },
     ];
 
@@ -76,82 +78,108 @@ fn print_features() {
     println!();
 }
 
+/// Print middleware table with phases
+fn print_middleware() {
+    let middleware = vec![
+        MiddlewareInfo {
+            name: "CORS",
+            phase: "Pre-Routing",
+            pattern: "*",
+        },
+        MiddlewareInfo {
+            name: "HTTP Sniffer",
+            phase: "Post-Routing",
+            pattern: "*",
+        },
+        MiddlewareInfo {
+            name: "Logger",
+            phase: "Post-Routing",
+            pattern: "*",
+        },
+        MiddlewareInfo {
+            name: "Pretty JSON",
+            phase: "Post-Routing",
+            pattern: "*",
+        },
+        MiddlewareInfo {
+            name: "API Auth",
+            phase: "Post-Routing",
+            pattern: "/api/*",
+        },
+        MiddlewareInfo {
+            name: "Admin Auth",
+            phase: "Post-Routing",
+            pattern: "/admin",
+        },
+    ];
+
+    println!("🔧 Middleware (Execution Order):");
+    let mut table = Table::new(middleware);
+    table.with(Style::rounded());
+    println!("{}", table);
+    println!();
+    println!("   Pre-Routing:  Runs BEFORE route matching (no route params)");
+    println!("   Post-Routing: Runs AFTER route matching (has route params)");
+    println!();
+}
+
 /// Print routes table
 fn print_routes() {
     let routes = vec![
         Route {
             method: "GET",
             path: "/",
-            middleware: "Global",
+            middleware: "Post-Routing (Global)",
+        },
+        Route {
+            method: "GET",
+            path: "/osinfo",
+            middleware: "Post-Routing (Global)",
         },
         Route {
             method: "GET",
             path: "/users",
-            middleware: "Global",
+            middleware: "Post-Routing (Global)",
         },
         Route {
             method: "POST",
             path: "/users",
-            middleware: "Global",
-        },
-        Route {
-            method: "GET",
-            path: "/admin",
-            middleware: "Global + Admin",
-        },
-        Route {
-            method: "POST",
-            path: "/admin",
-            middleware: "Global + Admin",
+            middleware: "Post-Routing (Global)",
         },
         Route {
             method: "GET",
             path: "/users/:id",
-            middleware: "Global",
+            middleware: "Post-Routing (Global)",
         },
         Route {
             method: "PUT",
             path: "/users/:id",
-            middleware: "Global",
+            middleware: "Post-Routing (Global)",
         },
         Route {
             method: "DELETE",
             path: "/users/:id",
-            middleware: "Global",
+            middleware: "Post-Routing (Global)",
+        },
+        Route {
+            method: "GET",
+            path: "/admin",
+            middleware: "Post-Routing (Global + Admin)",
+        },
+        Route {
+            method: "POST",
+            path: "/admin",
+            middleware: "Post-Routing (Global + Admin)",
         },
         Route {
             method: "GET",
             path: "/api/status",
-            middleware: "Global + API",
+            middleware: "Post-Routing (Global + API)",
         },
     ];
 
     println!("📍 Routes:");
     let mut table = Table::new(routes);
-    table.with(Style::rounded());
-    println!("{}", table);
-    println!();
-}
-
-/// Print middleware patterns table
-fn print_middleware_patterns() {
-    let patterns = vec![
-        MiddlewarePattern {
-            pattern: "*",
-            applies_to: "All routes (global)",
-        },
-        MiddlewarePattern {
-            pattern: "/api/*",
-            applies_to: "API routes only",
-        },
-        MiddlewarePattern {
-            pattern: "/admin",
-            applies_to: "Admin routes only",
-        },
-    ];
-
-    println!("🔧 Middleware Patterns:");
-    let mut table = Table::new(patterns);
     table.with(Style::rounded());
     println!("{}", table);
     println!();

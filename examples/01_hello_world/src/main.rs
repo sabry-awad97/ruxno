@@ -9,6 +9,38 @@
 //! - Middleware: Cross-cutting concerns (logging, HTTP sniffer, CORS, etc.)
 //! - Config: Application configuration
 //!
+//! # Middleware System
+//!
+//! This example demonstrates Ruxno's unified middleware system with explicit phases:
+//!
+//! ## Pre-Routing Middleware
+//! Runs BEFORE route matching. Use for:
+//! - CORS preflight requests
+//! - Health checks that should bypass routing
+//! - Early request rejection (rate limiting, IP blocking)
+//!
+//! **Important**: Pre-routing middleware CANNOT access route parameters.
+//!
+//! ```rust,ignore
+//! app.use_before_routing(cors_middleware);
+//! app.use_before_routing_on("/health", health_check);
+//! ```
+//!
+//! ## Post-Routing Middleware (Default)
+//! Runs AFTER route matching. Use for:
+//! - Authentication and authorization
+//! - Request validation
+//! - Logging with route context
+//! - Response transformation
+//!
+//! **Benefit**: Post-routing middleware HAS access to route parameters.
+//!
+//! ```rust,ignore
+//! app.r#use(logger);
+//! app.use_on("/api/*", auth);
+//! app.on(Method::POST, "/api/*", validation);
+//! ```
+//!
 //! # HTTP Sniffer
 //!
 //! This example includes an HTTP sniffer middleware that logs detailed request
@@ -76,16 +108,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Configure global middleware
+/// Configure middleware with explicit phases
 fn configure_middleware(app: &mut App<AppEnv>) {
+    // ========================================================================
+    // Pre-Routing Middleware (runs BEFORE routing)
+    // ========================================================================
+    // Use for: CORS preflight, health checks, early rejection
+    // Note: Cannot access route parameters
+
+    // CORS middleware - handles preflight requests before routing
+    app.use_before_routing(cors());
+
+    // ========================================================================
+    // Post-Routing Middleware (runs AFTER routing) - DEFAULT
+    // ========================================================================
+    // Use for: Auth, validation, logging with route context
+    // Has access to route parameters
+
     // HTTP sniffer middleware - logs detailed request information
     app.with_http_sniffer();
 
     // Global logging middleware - applies to ALL requests (including health checks)
     app.r#use(logging_middleware);
-
-    // CORS middleware - allow cross-origin requests (development mode)
-    app.r#use(cors());
 
     // Pretty JSON middleware - formats all JSON responses
     app.r#use(pretty_json());
