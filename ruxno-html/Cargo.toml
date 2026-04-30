@@ -1,0 +1,21 @@
+[package]
+name = "ruxno-html"
+version = "0.1.0"
+edition = "2024"
+authors = ["Ruxno Contributors"]
+license = "MIT OR Apache-2.0"
+description = "HTML macro for Ruxno web framework using rstml"
+keywords = ["html", "macro", "template", "web"]
+categories = ["web-programming", "template-engine"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+rstml = "0.12"
+
+[dev-dependencies]
+trybuild = "1.0"

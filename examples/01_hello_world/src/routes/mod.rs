@@ -24,6 +24,9 @@ pub fn configure_routes(app: &App<AppEnv>) {
     // OS Info route (similar to Node.js example)
     app.get("/osinfo", home_controller::osinfo);
 
+    // Test ruxno-html macro route
+    app.get("/test-html", home_controller::test_html_macro);
+
     // Configure domain-specific routes
     configure_user_routes(app);
     configure_admin_routes(app);

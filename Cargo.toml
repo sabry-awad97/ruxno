@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ruxno", "ruxno-middleware", "examples/*"]
+members = ["ruxno", "ruxno-middleware", "ruxno-html", "examples/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -43,6 +43,7 @@ criterion = "0.5"
 
 ruxno = { path = "./ruxno" }
 ruxno-middleware = { path = "./ruxno-middleware", features = ["full"] }
+ruxno-html = { path = "./ruxno-html" }
 
 [profile.release]
 opt-level = 3

@@ -14,30 +14,67 @@ pub async fn index(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
     let markup: maud::PreEscaped<String> = html! {
         html {
             head {
+                meta charset="UTF-8";
+                meta name="viewport" content="width=device-width, initial-scale=1.0";
                 title { "Hello, world!" }
-                style {
-                    "body { font-family: Arial, sans-serif; margin: 40px; }"
-                    "h1 { color: #333; }"
-                    "a { color: #0066cc; text-decoration: none; }"
-                    "a:hover { text-decoration: underline; }"
-                    ".info { background: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0; }"
-                }
+                script src="https://cdn.tailwindcss.com" {}
             }
-            body {
-                h1 { "Hello, world!" }
-                div.info {
-                    p { "Welcome to the Ruxno HTTP Sniffer Example!" }
-                    p { "This server demonstrates HTTP request sniffing similar to Node.js utilities." }
+            body class="bg-gray-50" {
+                div class="container mx-auto px-4 py-8" {
+                    h1 class="text-4xl font-bold text-gray-800 mb-6" { "Hello, world!" }
+                    div class="bg-white rounded-lg shadow-md p-6 mb-6" {
+                        p class="text-lg mb-2" { "Welcome to the Ruxno HTTP Sniffer Example!" }
+                        p class="text-gray-600" { "This server demonstrates HTTP request sniffing similar to Node.js utilities." }
+                    }
+                    div class="space-y-3" {
+                        a href="/osinfo" class="block text-blue-600 hover:text-blue-800 font-medium" { "→ OS Info" }
+                        a href="/users" class="block text-blue-600 hover:text-blue-800 font-medium" { "→ User API" }
+                        a href="/api/status" class="block text-blue-600 hover:text-blue-800 font-medium" { "→ API Status" }
+                        a href="/admin" class="block text-blue-600 hover:text-blue-800 font-medium" { "→ Admin Dashboard" }
+                        a href="/test-html" class="block text-blue-600 hover:text-blue-800 font-medium" { "→ Test Ruxno HTML Macro" }
+                    }
                 }
-                p { a href="/osinfo" { "OS Info" } }
-                p { a href="/users" { "User API" } }
-                p { a href="/api/status" { "API Status" } }
-                p { a href="/admin" { "Admin Dashboard" } }
             }
         }
     };
 
     Ok(ctx.html(markup.into_string()))
+}
+
+/// Test handler for ruxno-html macro
+pub async fn test_html_macro(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
+    let name = "Ruxno";
+    let version = "0.1.0";
+    let items = ["Fast", "Type-safe", "Ergonomic"];
+
+    let markup = ruxno_html::html! {
+        <html>
+            <head>
+                <meta charset="UTF-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                <title>Test Ruxno HTML Macro</title>
+                <script src="https://cdn.tailwindcss.com"></script>
+            </head>
+            <body class="bg-gray-50">
+                <div class="container mx-auto px-4 py-8">
+                    <h1 class="text-4xl font-bold text-gray-800 mb-6">Testing {name} HTML Macro</h1>
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                        <p class="text-lg mb-2"><span class="font-semibold">Version:</span> {version}</p>
+                        <p class="text-gray-600">This page is rendered using the ruxno-html macro!</p>
+                    </div>
+                    <h2 class="text-2xl font-semibold text-gray-800 mb-4">Features:</h2>
+                    <ul class="list-disc list-inside space-y-2 mb-6">
+                        <li class="text-gray-700">{items[0]}</li>
+                        <li class="text-gray-700">{items[1]}</li>
+                        <li class="text-gray-700">{items[2]}</li>
+                    </ul>
+                    <a href="/" class="inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2 rounded-lg transition-colors">Back to Home</a>
+                </div>
+            </body>
+        </html>
+    };
+
+    Ok(ctx.html(markup))
 }
 
 /// OS Info page handler - returns system information in HTML
@@ -101,62 +138,77 @@ pub async fn osinfo(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
     let markup = html! {
         html {
             head {
+                meta charset="UTF-8";
+                meta name="viewport" content="width=device-width, initial-scale=1.0";
                 title { "Operating System Info" }
-                style {
-                    "body { font-family: Arial, sans-serif; margin: 40px; }"
-                    "h1 { color: #333; }"
-                    "table { border-collapse: collapse; width: 100%; margin: 20px 0; }"
-                    "th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }"
-                    "th { background-color: #f2f2f2; font-weight: bold; }"
-                    "pre { background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; }"
-                    ".back-link { margin: 20px 0; }"
-                    "a { color: #0066cc; text-decoration: none; }"
-                    "a:hover { text-decoration: underline; }"
-                }
+                script src="https://cdn.tailwindcss.com" {}
             }
-            body {
-                h1 { "Operating System Info" }
-                table {
-                    tr { th { "Host Name" } td { (hostname) } }
-                    tr { th { "OS Type" } td { (os_name) " " (os_version) } }
-                    tr { th { "Kernel Version" } td { (kernel_version) } }
-                    tr { th { "Uptime" } td { (uptime_formatted) } }
-                    tr {
-                        th { "Memory" }
-                        td {
-                            "Total: " (format_bytes(total_memory)) br;
-                            "Used: " (format_bytes(used_memory)) br;
-                            "Available: " (format_bytes(available_memory))
-                        }
-                    }
-                    tr { th { "CPU's" } td { pre { (PreEscaped(&cpu_info)) } } }
-                    tr {
-                        th { "Network Interfaces" }
-                        td {
-                            pre {
-                                @if network_info.is_empty() {
-                                    "No network interfaces found"
-                                } @else {
-                                    (PreEscaped(&network_info))
+            body class="bg-gray-50" {
+                div class="container mx-auto px-4 py-8" {
+                    h1 class="text-4xl font-bold text-gray-800 mb-6" { "Operating System Info" }
+                    div class="bg-white rounded-lg shadow-md overflow-hidden" {
+                        table class="min-w-full divide-y divide-gray-200" {
+                            tbody class="bg-white divide-y divide-gray-200" {
+                                tr {
+                                    th class="px-6 py-4 text-left text-sm font-semibold text-gray-900 bg-gray-50" { "Host Name" }
+                                    td class="px-6 py-4 text-sm text-gray-700" { (hostname) }
+                                }
+                                tr {
+                                    th class="px-6 py-4 text-left text-sm font-semibold text-gray-900 bg-gray-50" { "OS Type" }
+                                    td class="px-6 py-4 text-sm text-gray-700" { (os_name) " " (os_version) }
+                                }
+                                tr {
+                                    th class="px-6 py-4 text-left text-sm font-semibold text-gray-900 bg-gray-50" { "Kernel Version" }
+                                    td class="px-6 py-4 text-sm text-gray-700" { (kernel_version) }
+                                }
+                                tr {
+                                    th class="px-6 py-4 text-left text-sm font-semibold text-gray-900 bg-gray-50" { "Uptime" }
+                                    td class="px-6 py-4 text-sm text-gray-700" { (uptime_formatted) }
+                                }
+                                tr {
+                                    th class="px-6 py-4 text-left text-sm font-semibold text-gray-900 bg-gray-50" { "Memory" }
+                                    td class="px-6 py-4 text-sm text-gray-700" {
+                                        div { "Total: " (format_bytes(total_memory)) }
+                                        div { "Used: " (format_bytes(used_memory)) }
+                                        div { "Available: " (format_bytes(available_memory)) }
+                                    }
+                                }
+                                tr {
+                                    th class="px-6 py-4 text-left text-sm font-semibold text-gray-900 bg-gray-50" { "CPU's" }
+                                    td class="px-6 py-4 text-sm text-gray-700" {
+                                        pre class="bg-gray-50 p-3 rounded text-xs overflow-x-auto" { (PreEscaped(&cpu_info)) }
+                                    }
+                                }
+                                tr {
+                                    th class="px-6 py-4 text-left text-sm font-semibold text-gray-900 bg-gray-50" { "Network Interfaces" }
+                                    td class="px-6 py-4 text-sm text-gray-700" {
+                                        pre class="bg-gray-50 p-3 rounded text-xs overflow-x-auto" {
+                                            @if network_info.is_empty() {
+                                                "No network interfaces found"
+                                            } @else {
+                                                (PreEscaped(&network_info))
+                                            }
+                                        }
+                                    }
+                                }
+                                tr {
+                                    th class="px-6 py-4 text-left text-sm font-semibold text-gray-900 bg-gray-50" { "Disks" }
+                                    td class="px-6 py-4 text-sm text-gray-700" {
+                                        pre class="bg-gray-50 p-3 rounded text-xs overflow-x-auto" {
+                                            @if disk_info.is_empty() {
+                                                "No disk information available"
+                                            } @else {
+                                                (PreEscaped(disk_info))
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                    tr {
-                        th { "Disks" }
-                        td {
-                            pre {
-                                @if disk_info.is_empty() {
-                                    "No disk information available"
-                                } @else {
-                                    (PreEscaped(disk_info))
-                                }
-                            }
-                        }
+                    div class="mt-6" {
+                        a href="/" class="inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2 rounded-lg transition-colors" { "← Back to Home" }
                     }
-                }
-                div.back-link {
-                    a href="/" { "← Back to Home" }
                 }
             }
         }
