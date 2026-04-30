@@ -106,11 +106,82 @@ where
 
     // Middleware registration
 
-    /// Register middleware
+    /// Register pre-routing middleware (runs before routing)
     ///
-    /// Can be used for:
-    /// - Global middleware (no pattern): applies to all routes
-    /// - Path-specific middleware (with pattern): applies only to matching routes
+    /// Pre-routing middleware executes before route matching occurs.
+    /// Use this for:
+    /// - CORS preflight requests
+    /// - Health checks that should bypass routing
+    /// - Early request rejection (rate limiting, IP blocking)
+    /// - Global request logging
+    ///
+    /// **Important**: Pre-routing middleware CANNOT access route parameters
+    /// because routing hasn't happened yet.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use ruxno_clean::prelude::*;
+    ///
+    /// let mut app = App::new();
+    ///
+    /// // CORS preflight middleware
+    /// app.use_before_routing(|ctx: Context, next: Next| async move {
+    ///     if ctx.req.method() == &Method::OPTIONS {
+    ///         return Ok(Response::new().with_status_code(204));
+    ///     }
+    ///     next.run(ctx).await
+    /// });
+    /// ```
+    pub fn use_before_routing(&mut self, middleware: impl Middleware<E>) -> &mut Self {
+        use crate::pipeline::MiddlewarePhase;
+        Arc::get_mut(&mut self.dispatcher)
+            .expect("Dispatcher should be uniquely owned during middleware registration")
+            .register_middleware(MiddlewarePhase::PreRouting, middleware, None);
+        self
+    }
+
+    /// Register pre-routing middleware with path filter
+    ///
+    /// Pre-routing middleware with path filter runs before routing,
+    /// but only for requests matching the specified pattern.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use ruxno_clean::prelude::*;
+    ///
+    /// let mut app = App::new();
+    ///
+    /// // Health check that bypasses routing
+    /// app.use_before_routing_on("/health", |ctx: Context, _next: Next| async move {
+    ///     Ok(Response::json(&serde_json::json!({"status": "ok"})))
+    /// });
+    /// ```
+    pub fn use_before_routing_on(
+        &mut self,
+        pattern: &str,
+        middleware: impl Middleware<E>,
+    ) -> &mut Self {
+        use crate::pipeline::MiddlewarePhase;
+        let opts = MiddlewareOptions::new().on(pattern);
+        Arc::get_mut(&mut self.dispatcher)
+            .expect("Dispatcher should be uniquely owned during middleware registration")
+            .register_middleware(MiddlewarePhase::PreRouting, middleware, Some(opts));
+        self
+    }
+
+    /// Register post-routing middleware (runs after routing)
+    ///
+    /// Post-routing middleware executes after route matching.
+    /// Use this for:
+    /// - Authentication and authorization
+    /// - Request validation
+    /// - Logging with route context
+    /// - Response transformation
+    ///
+    /// **Benefit**: Post-routing middleware HAS access to route parameters
+    /// extracted during routing.
     ///
     /// Patterns support:
     /// - Exact match: `/api/users`
@@ -137,9 +208,37 @@ where
     /// });
     /// ```
     pub fn r#use(&mut self, middleware: impl Middleware<E>) -> &mut Self {
+        use crate::pipeline::MiddlewarePhase;
         Arc::get_mut(&mut self.dispatcher)
             .expect("Dispatcher should be uniquely owned during middleware registration")
-            .register_middleware(middleware, None);
+            .register_middleware(MiddlewarePhase::PostRouting, middleware, None);
+        self
+    }
+
+    /// Register post-routing middleware with path filter
+    ///
+    /// Post-routing middleware with path filter runs after routing,
+    /// but only for requests matching the specified pattern.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use ruxno_clean::prelude::*;
+    ///
+    /// let mut app = App::new();
+    ///
+    /// // Auth middleware for API routes
+    /// app.use_on("/api/*", |ctx: Context, next: Next| async move {
+    ///     // Check authentication
+    ///     next.run(ctx).await
+    /// });
+    /// ```
+    pub fn use_on(&mut self, pattern: &str, middleware: impl Middleware<E>) -> &mut Self {
+        use crate::pipeline::MiddlewarePhase;
+        let opts = MiddlewareOptions::new().on(pattern);
+        Arc::get_mut(&mut self.dispatcher)
+            .expect("Dispatcher should be uniquely owned during middleware registration")
+            .register_middleware(MiddlewarePhase::PostRouting, middleware, Some(opts));
         self
     }
 
@@ -175,10 +274,11 @@ where
         pattern: &str,
         middleware: impl Middleware<E>,
     ) -> &mut Self {
+        use crate::pipeline::MiddlewarePhase;
         let opts = MiddlewareOptions::new().for_method(method).on(pattern);
         Arc::get_mut(&mut self.dispatcher)
             .expect("Dispatcher should be uniquely owned during middleware registration")
-            .register_middleware(middleware, Some(opts));
+            .register_middleware(MiddlewarePhase::PostRouting, middleware, Some(opts));
         self
     }
 
@@ -282,8 +382,17 @@ mod tests {
     #[test]
     fn test_app_use() {
         let mut app = App::new();
-        // Should not panic
+        // Should not panic - using PostRouting phase
         app.r#use(|_ctx: crate::domain::Context, next: crate::core::Next| async move {
+            next.run(_ctx).await
+        });
+    }
+
+    #[test]
+    fn test_app_use_before_routing() {
+        let mut app = App::new();
+        // Should not panic - using PreRouting phase
+        app.use_before_routing(|_ctx: crate::domain::Context, next: crate::core::Next| async move {
             next.run(_ctx).await
         });
     }
@@ -291,7 +400,7 @@ mod tests {
     #[test]
     fn test_app_on() {
         let mut app = App::new();
-        // Should not panic
+        // Should not panic - using PostRouting phase
         app.on(
             Method::POST,
             "/api/*",
@@ -326,8 +435,8 @@ mod tests {
 
         let mut app = App::new();
 
-        // Register global middleware using use()
-        app.r#use(TestMiddleware {
+        // Register pre-routing middleware using use_before_routing()
+        app.use_before_routing(TestMiddleware {
             header: "global".to_string(),
         });
 
@@ -352,7 +461,7 @@ mod tests {
         let response = app.dispatch(req).await.unwrap();
         assert_eq!(response.headers().get("X-Test").unwrap(), "global");
 
-        // Test /public - should also have middleware header (global)
+        // Test /public - should also have middleware header (global pre-routing)
         let req = crate::domain::Request::new(
             Method::GET,
             "/public".parse().unwrap(),

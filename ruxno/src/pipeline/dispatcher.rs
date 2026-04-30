@@ -100,8 +100,11 @@ impl MiddlewareOptions {
 
 /// Middleware registration entry
 ///
-/// Stores middleware with optional method and pattern filters.
+/// Stores middleware with phase and optional method and pattern filters.
 struct MiddlewareEntry<E> {
+    /// Execution phase (PreRouting or PostRouting)
+    phase: crate::pipeline::MiddlewarePhase,
+
     /// Optional method filter (None = all methods)
     method: Option<Method>,
 
@@ -140,26 +143,26 @@ impl<E> MiddlewareEntry<E> {
 /// Dispatcher - Orchestrates request handling
 ///
 /// The Dispatcher is the central component that ties together routing,
-/// middleware, and handler execution. It pre-computes middleware chains
-/// at registration time for optimal performance.
+/// middleware, and handler execution. It uses a unified middleware system
+/// with explicit phases (PreRouting and PostRouting).
 ///
 /// # Examples
 ///
 /// ```rust,ignore
+/// use ruxno::pipeline::MiddlewarePhase;
+///
 /// let mut dispatcher = Dispatcher::new(Arc::new(env));
 ///
 /// // Register routes
 /// dispatcher.register_route(Method::GET, "/", home_handler)?;
 /// dispatcher.register_route(Method::GET, "/users/:id", get_user)?;
 ///
-/// // Register global middleware (applied to all routes)
-/// dispatcher.register_middleware(logger);
+/// // Register pre-routing middleware (runs before routing)
+/// dispatcher.register_middleware(MiddlewarePhase::PreRouting, logger, None);
 ///
-/// // Register path-specific middleware
-/// dispatcher.register_middleware_on("/api/*", auth_middleware);
-///
-/// // Register method + path-specific middleware
-/// dispatcher.register_middleware_for(Method::POST, "/api/*", validation_middleware);
+/// // Register post-routing middleware (runs after routing)
+/// let opts = MiddlewareOptions::new().on("/api/*");
+/// dispatcher.register_middleware(MiddlewarePhase::PostRouting, auth_middleware, Some(opts));
 ///
 /// // Dispatch a request
 /// let response = dispatcher.dispatch(request).await?;
@@ -168,11 +171,8 @@ pub struct Dispatcher<E = ()> {
     /// Router for route matching
     router: Router<E>,
 
-    /// Global middleware entries (run before routing)
-    global_middleware: Vec<Arc<dyn Middleware<E>>>,
-
-    /// Route-specific middleware entries with optional filters
-    middleware_entries: Vec<MiddlewareEntry<E>>,
+    /// Unified middleware storage with phases
+    middleware: Vec<MiddlewareEntry<E>>,
 
     /// Environment for dependency injection
     env: Arc<E>,
@@ -196,19 +196,19 @@ where
     pub fn new(env: Arc<E>) -> Self {
         Self {
             router: Router::new(),
-            global_middleware: Vec::new(),
-            middleware_entries: Vec::new(),
+            middleware: Vec::new(),
             env,
         }
     }
 
     /// Register a route with a handler
     ///
-    /// The handler is wrapped with all matching middleware into a pre-computed
-    /// chain at registration time. This means zero per-request overhead for
-    /// middleware chain building.
+    /// The handler is wrapped with all matching PostRouting middleware into a
+    /// pre-computed chain at registration time. This means zero per-request
+    /// overhead for middleware chain building.
     ///
     /// Middleware matching rules:
+    /// - Only PostRouting middleware is included in the pre-computed chain
     /// - Global middleware (no filters) always match
     /// - Method-filtered middleware match if method matches
     /// - Pattern-filtered middleware match if pattern matches the route path
@@ -237,15 +237,17 @@ where
         path: &str,
         handler: impl Handler<E>,
     ) -> Result<(), CoreError> {
+        use crate::pipeline::MiddlewarePhase;
+
         // Box the handler
         let boxed_handler = BoxedHandler::new(handler);
 
         // Build middleware chain (pre-computed at registration time)
         let mut chain = MiddlewareChain::new(boxed_handler);
 
-        // Add matching middleware to the chain
-        for entry in &self.middleware_entries {
-            if entry.matches(&method, path) {
+        // Add matching PostRouting middleware to the chain
+        for entry in &self.middleware {
+            if entry.phase == MiddlewarePhase::PostRouting && entry.matches(&method, path) {
                 chain.add(Arc::clone(&entry.middleware));
             }
         }
@@ -259,78 +261,72 @@ where
         Ok(())
     }
 
-    /// Register middleware with optional filters
+    /// Register middleware with phase and optional filters
     ///
-    /// This method supports two types of middleware:
-    /// - **Global middleware** (no options): Runs before routing, can intercept any request
-    /// - **Route-specific middleware** (with options): Runs after routing, attached to matching routes
+    /// This method supports a unified middleware system with explicit phases:
+    /// - **PreRouting**: Runs before routing, can intercept any request
+    /// - **PostRouting**: Runs after routing, attached to matching routes
     ///
     /// Middleware are applied in the order they're registered.
     ///
     /// # Arguments
     ///
+    /// - `phase`: When the middleware should run (PreRouting or PostRouting)
     /// - `middleware`: Middleware to register
     /// - `options`: Optional filters (method, pattern, or both)
-    ///   - `None`: Global middleware (runs before routing)
-    ///   - `Some(opts)`: Route-specific middleware (runs after routing)
     ///
     /// # Examples
     ///
     /// ```rust,ignore
-    /// use ruxno::{Dispatcher, MiddlewareOptions, Method};
+    /// use ruxno::{Dispatcher, MiddlewareOptions, MiddlewarePhase, Method};
     ///
     /// let mut dispatcher = Dispatcher::new(Arc::new(()));
     ///
-    /// // Global middleware (runs before routing)
-    /// dispatcher.register_middleware(health_check, None);
-    /// dispatcher.register_middleware(logger, None);
+    /// // Pre-routing middleware (runs before routing)
+    /// dispatcher.register_middleware(MiddlewarePhase::PreRouting, health_check, None);
+    /// dispatcher.register_middleware(MiddlewarePhase::PreRouting, logger, None);
     ///
-    /// // Route-specific middleware (runs after routing)
+    /// // Post-routing middleware (runs after routing)
     /// let opts = MiddlewareOptions::new().on("/api/*");
-    /// dispatcher.register_middleware(auth, Some(opts));
+    /// dispatcher.register_middleware(MiddlewarePhase::PostRouting, auth, Some(opts));
     ///
     /// // Method + path-specific middleware
     /// let opts = MiddlewareOptions::new()
     ///     .for_method(Method::POST)
     ///     .on("/api/*");
-    /// dispatcher.register_middleware(csrf, Some(opts));
+    /// dispatcher.register_middleware(MiddlewarePhase::PostRouting, csrf, Some(opts));
     /// ```
     pub fn register_middleware(
         &mut self,
+        phase: crate::pipeline::MiddlewarePhase,
         middleware: impl Middleware<E>,
         options: Option<MiddlewareOptions>,
     ) {
-        match options {
-            // Global middleware: no filters, runs before routing
-            None => {
-                self.global_middleware.push(Arc::new(middleware));
-            }
-            // Route-specific middleware: has filters, runs after routing
-            Some(options) => {
-                // Parse pattern if provided
-                let parsed_pattern = options
-                    .pattern
-                    .as_ref()
-                    .and_then(|p| Pattern::parse(p).ok());
+        let (method, pattern) = match options {
+            Some(opts) => (
+                opts.method,
+                opts.pattern.and_then(|p| Pattern::parse(&p).ok()),
+            ),
+            None => (None, None),
+        };
 
-                self.middleware_entries.push(MiddlewareEntry {
-                    method: options.method,
-                    pattern: parsed_pattern,
-                    middleware: Arc::new(middleware),
-                });
-            }
-        }
+        self.middleware.push(MiddlewareEntry {
+            phase,
+            method,
+            pattern,
+            middleware: Arc::new(middleware),
+        });
     }
 
-    /// Dispatch a request through the global middleware, routing, and route-specific middleware pipeline
+    /// Dispatch a request through the unified middleware pipeline
     ///
-    /// This method implements a middleware-first approach:
-    /// 1. Runs global middleware (can intercept before routing)
+    /// This method implements a phased middleware approach:
+    /// 1. Runs PreRouting middleware (can intercept before routing)
     /// 2. Performs route lookup
     /// 3. Extracts path parameters and creates context
-    /// 4. Executes route-specific middleware + handler chain
+    /// 4. Executes PostRouting middleware + handler chain (pre-computed)
     ///
-    /// Global middleware can:
+    /// PreRouting middleware can:
     /// - Intercept requests before routing (e.g., health checks, CORS preflight)
     /// - Short-circuit the pipeline by returning early
     /// - Modify requests before they reach routing
@@ -350,33 +346,60 @@ where
     /// let response = dispatcher.dispatch(request).await?;
     /// ```
     pub async fn dispatch(self: Arc<Self>, req: Request) -> Result<Response, CoreError> {
-        // Create initial context for global middleware
+        // Create initial context
         let ctx = Context::new(req, Arc::clone(&self.env));
 
-        // Execute global middleware chain first
-        self.execute_global_middleware(ctx).await
+        // Execute PreRouting middleware, then routing
+        self.execute_pre_routing_then_routing(ctx).await
     }
 
-    /// Execute global middleware chain, then route lookup and handler execution
-    async fn execute_global_middleware(
+    /// Execute PreRouting middleware, then routing
+    async fn execute_pre_routing_then_routing(
         self: Arc<Self>,
         ctx: Context<E>,
     ) -> Result<Response, CoreError> {
-        if self.global_middleware.is_empty() {
-            // No global middleware, go directly to routing
+        use crate::pipeline::MiddlewarePhase;
+
+        // Filter PreRouting middleware
+        let pre_routing_middleware: Vec<_> = self
+            .middleware
+            .iter()
+            .filter(|entry| entry.phase == MiddlewarePhase::PreRouting)
+            .filter(|entry| {
+                // Check method filter
+                if let Some(ref method) = entry.method {
+                    if method != ctx.req.method() {
+                        return false;
+                    }
+                }
+                // Check pattern filter
+                if let Some(ref pattern) = entry.pattern {
+                    // Use matchit for pattern matching
+                    let mut router = matchit::Router::new();
+                    if router.insert(pattern.matchit_pattern(), ()).is_ok() {
+                        return router.at(ctx.req.path()).is_ok();
+                    }
+                    return false;
+                }
+                true
+            })
+            .collect();
+
+        if pre_routing_middleware.is_empty() {
+            // No PreRouting middleware, go directly to routing
             return self.execute_routing(ctx).await;
         }
 
-        // Create a handler that will do routing after all global middleware
+        // Create a handler that will do routing after all PreRouting middleware
         let routing_handler = RoutingHandler {
             dispatcher: Arc::clone(&self),
         };
         let mut next = Next::new(BoxedHandler::new(routing_handler));
 
-        // Apply global middleware in reverse order (last registered runs first)
-        for middleware in self.global_middleware.iter().rev() {
+        // Apply PreRouting middleware in reverse order (last registered runs first)
+        for entry in pre_routing_middleware.iter().rev() {
             let current_next = next;
-            let middleware_clone = Arc::clone(middleware);
+            let middleware_clone = Arc::clone(&entry.middleware);
 
             // Create a handler that runs this middleware with the current next
             let middleware_handler = MiddlewareHandler {
@@ -392,7 +415,7 @@ where
         handler.handle(ctx).await
     }
 
-    /// Execute routing and route-specific middleware (called after global middleware)
+    /// Execute routing and route-specific middleware (called after PreRouting middleware)
     async fn execute_routing(self: Arc<Self>, ctx: Context<E>) -> Result<Response, CoreError> {
         let method = ctx.req.method();
         let path = ctx.req.path();
@@ -412,12 +435,12 @@ where
         // Create new context with params
         let ctx_with_params = Context::new(req_with_params, Arc::clone(&self.env));
 
-        // Execute handler (which includes pre-computed route-specific middleware chain)
+        // Execute handler (which includes pre-computed PostRouting middleware chain)
         handler.handle(ctx_with_params).await
     }
 }
 
-/// Handler that executes routing after global middleware
+/// Handler that executes routing after PreRouting middleware
 struct RoutingHandler<E> {
     dispatcher: Arc<Dispatcher<E>>,
 }
@@ -534,6 +557,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_dispatcher_with_middleware() {
+        use crate::pipeline::MiddlewarePhase;
+
         struct AddHeaderMiddleware {
             name: String,
             value: String,
@@ -557,8 +582,9 @@ mod tests {
 
         let mut dispatcher = Dispatcher::new(Arc::new(()));
 
-        // Register middleware BEFORE routes
+        // Register middleware BEFORE routes (using PreRouting phase)
         dispatcher.register_middleware(
+            MiddlewarePhase::PreRouting,
             AddHeaderMiddleware {
                 name: "X-Custom".to_string(),
                 value: "middleware-value".to_string(),
@@ -702,6 +728,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_dispatcher_pattern_middleware() {
+        use crate::pipeline::MiddlewarePhase;
+
         struct AddHeaderMiddleware {
             name: String,
             value: String,
@@ -725,9 +753,10 @@ mod tests {
 
         let mut dispatcher = Dispatcher::new(Arc::new(()));
 
-        // Register pattern-specific middleware BEFORE routes
+        // Register pattern-specific middleware BEFORE routes (using PostRouting phase)
         let opts = MiddlewareOptions::new().on("/api/*");
         dispatcher.register_middleware(
+            MiddlewarePhase::PostRouting,
             AddHeaderMiddleware {
                 name: "X-API".to_string(),
                 value: "protected".to_string(),
@@ -762,6 +791,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_dispatcher_method_pattern_middleware() {
+        use crate::pipeline::MiddlewarePhase;
+
         struct AddHeaderMiddleware {
             name: String,
             value: String,
@@ -785,11 +816,12 @@ mod tests {
 
         let mut dispatcher = Dispatcher::new(Arc::new(()));
 
-        // Register method + pattern-specific middleware BEFORE routes
+        // Register method + pattern-specific middleware BEFORE routes (using PostRouting phase)
         let opts = MiddlewareOptions::new()
             .for_method(Method::POST)
             .on("/api/*");
         dispatcher.register_middleware(
+            MiddlewarePhase::PostRouting,
             AddHeaderMiddleware {
                 name: "X-Validated".to_string(),
                 value: "true".to_string(),
@@ -835,6 +867,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_dispatcher_exact_pattern_middleware() {
+        use crate::pipeline::MiddlewarePhase;
+
         struct AddHeaderMiddleware {
             name: String,
             value: String,
@@ -858,9 +892,10 @@ mod tests {
 
         let mut dispatcher = Dispatcher::new(Arc::new(()));
 
-        // Register exact pattern middleware
+        // Register exact pattern middleware (using PostRouting phase)
         let opts = MiddlewareOptions::new().on("/api/users");
         dispatcher.register_middleware(
+            MiddlewarePhase::PostRouting,
             AddHeaderMiddleware {
                 name: "X-Exact".to_string(),
                 value: "match".to_string(),
@@ -895,6 +930,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_dispatcher_multiple_middleware_layers() {
+        use crate::pipeline::MiddlewarePhase;
+
         struct AddHeaderMiddleware {
             name: String,
             value: String,
@@ -918,8 +955,9 @@ mod tests {
 
         let mut dispatcher = Dispatcher::new(Arc::new(()));
 
-        // Register multiple middleware layers
+        // Register multiple middleware layers (using PreRouting for global, PostRouting for others)
         dispatcher.register_middleware(
+            MiddlewarePhase::PreRouting,
             AddHeaderMiddleware {
                 name: "X-Global".to_string(),
                 value: "all".to_string(),
@@ -929,6 +967,7 @@ mod tests {
 
         let opts = MiddlewareOptions::new().on("/api/*");
         dispatcher.register_middleware(
+            MiddlewarePhase::PostRouting,
             AddHeaderMiddleware {
                 name: "X-API".to_string(),
                 value: "api".to_string(),
@@ -940,6 +979,7 @@ mod tests {
             .for_method(Method::POST)
             .on("/api/*");
         dispatcher.register_middleware(
+            MiddlewarePhase::PostRouting,
             AddHeaderMiddleware {
                 name: "X-POST".to_string(),
                 value: "post".to_string(),
@@ -964,6 +1004,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_dispatcher_parameterized_pattern_middleware() {
+        use crate::pipeline::MiddlewarePhase;
+
         struct AddHeaderMiddleware {
             name: String,
             value: String,
@@ -987,9 +1029,10 @@ mod tests {
 
         let mut dispatcher = Dispatcher::new(Arc::new(()));
 
-        // Register middleware with parameterized pattern
+        // Register middleware with parameterized pattern (using PostRouting phase)
         let opts = MiddlewareOptions::new().on("/users/:id");
         dispatcher.register_middleware(
+            MiddlewarePhase::PostRouting,
             AddHeaderMiddleware {
                 name: "X-User".to_string(),
                 value: "specific".to_string(),
@@ -1020,5 +1063,162 @@ mod tests {
         let req = create_test_request(Method::GET, "/posts/456");
         let response = Arc::clone(&dispatcher).dispatch(req).await.unwrap();
         assert!(response.headers().get("X-User").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_pre_routing_middleware() {
+        use crate::pipeline::MiddlewarePhase;
+
+        struct ShortCircuitMiddleware;
+
+        #[async_trait]
+        impl<E> Middleware<E> for ShortCircuitMiddleware
+        where
+            E: Send + Sync + 'static,
+        {
+            async fn process(
+                &self,
+                _ctx: Context<E>,
+                _next: crate::core::Next<E>,
+            ) -> Result<Response, CoreError> {
+                // Short-circuit before routing
+                Ok(Response::text("intercepted"))
+            }
+        }
+
+        let mut dispatcher = Dispatcher::new(Arc::new(()));
+
+        // Register pre-routing middleware that short-circuits
+        dispatcher.register_middleware(MiddlewarePhase::PreRouting, ShortCircuitMiddleware, None);
+
+        // Register route (should never be reached)
+        dispatcher
+            .register_route(Method::GET, "/test", |_ctx: Context<()>| async move {
+                Ok(Response::text("handler"))
+            })
+            .unwrap();
+
+        // Dispatch request
+        let req = create_test_request(Method::GET, "/test");
+        let response = Arc::new(dispatcher).dispatch(req).await.unwrap();
+
+        // Should get intercepted response, not handler response
+        match response.body() {
+            ResponseBody::Bytes(bytes) => {
+                assert_eq!(bytes, &Bytes::from("intercepted"));
+            }
+            _ => panic!("Expected Bytes body"),
+        }
+    }
+    #[tokio::test]
+    async fn test_post_routing_middleware_has_params() {
+        use crate::pipeline::MiddlewarePhase;
+
+        struct ParamCheckMiddleware;
+
+        #[async_trait]
+        impl<E> Middleware<E> for ParamCheckMiddleware
+        where
+            E: Send + Sync + 'static,
+        {
+            async fn process(
+                &self,
+                ctx: Context<E>,
+                next: crate::core::Next<E>,
+            ) -> Result<Response, CoreError> {
+                // Post-routing middleware should have access to route params
+                let id = ctx.req.param("id").expect("Should have id param");
+                assert_eq!(id, "123");
+                next.run(ctx).await
+            }
+        }
+
+        let mut dispatcher = Dispatcher::new(Arc::new(()));
+
+        // Register post-routing middleware
+        dispatcher.register_middleware(MiddlewarePhase::PostRouting, ParamCheckMiddleware, None);
+
+        // Register route with params
+        dispatcher
+            .register_route(Method::GET, "/users/:id", |ctx: Context<()>| async move {
+                let id = ctx.req.param("id").unwrap();
+                Ok(Response::text(format!("User: {}", id)))
+            })
+            .unwrap();
+
+        // Dispatch request
+        let req = create_test_request(Method::GET, "/users/123");
+        let response = Arc::new(dispatcher).dispatch(req).await.unwrap();
+
+        // Should succeed (middleware assertion passed)
+        match response.body() {
+            ResponseBody::Bytes(bytes) => {
+                assert_eq!(bytes, &Bytes::from("User: 123"));
+            }
+            _ => panic!("Expected Bytes body"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mixed_phases() {
+        use crate::pipeline::MiddlewarePhase;
+
+        struct AddHeaderMiddleware {
+            name: String,
+            value: String,
+        }
+
+        #[async_trait]
+        impl<E> Middleware<E> for AddHeaderMiddleware
+        where
+            E: Send + Sync + 'static,
+        {
+            async fn process(
+                &self,
+                ctx: Context<E>,
+                next: crate::core::Next<E>,
+            ) -> Result<Response, CoreError> {
+                let mut response = next.run(ctx).await?;
+                response.headers_mut().set(&self.name, &self.value).ok();
+                Ok(response)
+            }
+        }
+
+        let mut dispatcher = Dispatcher::new(Arc::new(()));
+
+        // Register pre-routing middleware
+        dispatcher.register_middleware(
+            MiddlewarePhase::PreRouting,
+            AddHeaderMiddleware {
+                name: "X-Pre".to_string(),
+                value: "before".to_string(),
+            },
+            None,
+        );
+
+        // Register post-routing middleware
+        dispatcher.register_middleware(
+            MiddlewarePhase::PostRouting,
+            AddHeaderMiddleware {
+                name: "X-Post".to_string(),
+                value: "after".to_string(),
+            },
+            None,
+        );
+
+        // Register route
+        dispatcher
+            .register_route(Method::GET, "/test", |_ctx: Context<()>| async move {
+                Ok(Response::text("test"))
+            })
+            .unwrap();
+
+        // Dispatch request
+        let req = create_test_request(Method::GET, "/test");
+        let response = Arc::new(dispatcher).dispatch(req).await.unwrap();
+
+        // Both middleware should have run
+        assert_eq!(response.headers().get("X-Pre").unwrap(), "before");
+        assert_eq!(response.headers().get("X-Post").unwrap(), "after");
     }
 }
