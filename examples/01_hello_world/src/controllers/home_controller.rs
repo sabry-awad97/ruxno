@@ -149,7 +149,7 @@ pub async fn osinfo(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
                                 @if disk_info.is_empty() {
                                     "No disk information available"
                                 } @else {
-                                    (disk_info)
+                                    (PreEscaped(disk_info))
                                 }
                             }
                         }
@@ -162,7 +162,7 @@ pub async fn osinfo(ctx: Context<AppEnv>) -> Result<Response, CoreError> {
         }
     };
 
-    Ok(ctx.html(markup.into_string()))
+    Ok(ctx.html(markup))
 }
 
 /// API status endpoint - returns JSON status information

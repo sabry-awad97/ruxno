@@ -285,6 +285,9 @@ where
         let active_connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let shutdown_timeout = self.config.shutdown_timeout();
 
+        // Create shutdown broadcast channel for signaling connections
+        let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
+
         tokio::pin!(shutdown);
 
         // Main server loop
@@ -336,11 +339,13 @@ where
                     let service = service.clone();
                     let max_body_size = self.config.max_body_size();
                     let max_headers = self.config.max_headers();
-                    let request_timeout = self.config.request_timeout();
 
                     // Add permit to track active connections
                     active_connections.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     let connection_counter = active_connections.clone();
+
+                    // Subscribe to shutdown signal for this connection
+                    let mut shutdown_rx = shutdown_tx.subscribe();
 
                     // Spawn a task to handle this connection
                     tokio::spawn(async move {
@@ -352,24 +357,34 @@ where
                             async move { service.handle(req, max_body_size, max_headers).await }
                         });
 
+                        // Build connection with graceful shutdown support
                         let connection = http1::Builder::new()
                             .serve_connection(io, service_fn);
 
-                        // Wrap connection handling with timeout if configured
-                        let result = if let Some(timeout) = request_timeout {
-                            match tokio::time::timeout(timeout, connection).await {
-                                Ok(result) => result,
-                                Err(_) => {
-                                    eprintln!("⏱️  Request timeout from {} after {:?}", peer_addr, timeout);
-                                    return;
+                        // Pin the connection for polling
+                        tokio::pin!(connection);
+
+                        // Handle connection with graceful shutdown
+                        tokio::select! {
+                            // Connection completes normally
+                            result = &mut connection => {
+                                if let Err(e) = result {
+                                    eprintln!("Connection error from {}: {}", peer_addr, e);
                                 }
                             }
-                        } else {
-                            connection.await
-                        };
+                            // Shutdown signal received - initiate graceful shutdown
+                            _ = shutdown_rx.recv() => {
+                                // Gracefully close the connection
+                                connection.as_mut().graceful_shutdown();
 
-                        if let Err(e) = result {
-                            eprintln!("Connection error from {}: {}", peer_addr, e);
+                                // Wait for connection to finish current request
+                                if let Err(e) = connection.await {
+                                    // Only log if it's not a graceful shutdown error
+                                    if !e.to_string().contains("connection closed") {
+                                        eprintln!("Connection shutdown error from {}: {}", peer_addr, e);
+                                    }
+                                }
+                            }
                         }
 
                         // Decrement connection counter when connection ends
@@ -382,6 +397,9 @@ where
                 _ = &mut shutdown => {
                     println!("🛑 Shutdown signal received");
                     println!("📡 Stopped accepting new connections");
+
+                    // Broadcast shutdown signal to all active connections
+                    let _ = shutdown_tx.send(());
 
                     // Get current active connection count
                     let active_count = active_connections.load(std::sync::atomic::Ordering::SeqCst);

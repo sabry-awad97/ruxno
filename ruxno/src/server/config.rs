@@ -413,9 +413,9 @@ impl Default for ServerConfig {
             request_timeout: Some(Duration::from_secs(30)),
             max_headers: 100,
             keep_alive_timeout: Some(Duration::from_secs(60)),
-            shutdown_timeout: Duration::from_secs(30),
-            max_connections: Some(10000), // Default: 10k concurrent connections
-            production_mode: false,       // Default: development mode (show errors)
+            shutdown_timeout: Duration::from_secs(10), // Reduced from 30s for faster shutdown
+            max_connections: Some(10000),              // Default: 10k concurrent connections
+            production_mode: false,                    // Default: development mode (show errors)
             http1_enabled: true,
             http2_enabled: false,
             tls_config: None,
