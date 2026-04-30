@@ -59,7 +59,10 @@ where
     /// Build the dispatcher from the registry
     ///
     /// This consumes the registry and creates an immutable Dispatcher.
-    /// Called automatically on first request if not called explicitly.
+    /// Called automatically by `listen()` before starting the server.
+    ///
+    /// This method is idempotent - calling it multiple times has no effect
+    /// after the first call.
     fn build_dispatcher(&self) {
         let mut inner = self.inner.lock();
 
@@ -336,6 +339,9 @@ where
     /// Creates a server and starts listening for HTTP connections.
     /// The server will run until Ctrl+C is pressed.
     ///
+    /// This method builds the dispatcher from the registry before starting the server,
+    /// ensuring no delay on the first request.
+    ///
     /// # Examples
     ///
     /// ```rust,no_run
@@ -343,7 +349,7 @@ where
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let mut app = App::new();
+    ///     let app = App::new();
     ///     app.get("/", |ctx: Context| async move {
     ///         Ok(ctx.text("Hello, World!"))
     ///     });
@@ -353,6 +359,9 @@ where
     /// }
     /// ```
     pub async fn listen(self, addr: &str) -> Result<(), CoreError> {
+        // Build the dispatcher before starting the server
+        self.build_dispatcher();
+
         use crate::server::Server;
         let server = Server::new(self);
         server.listen(addr).await
@@ -365,13 +374,15 @@ where
 
     /// Dispatch request (internal)
     pub(crate) async fn dispatch(&self, req: Request) -> Result<Response, CoreError> {
-        // Build dispatcher if not already built
-        self.build_dispatcher();
-
         // Clone the dispatcher Arc without holding the lock across await
         let dispatcher = {
             let inner = self.inner.lock();
-            Arc::clone(inner.dispatcher.as_ref().unwrap())
+            Arc::clone(
+                inner
+                    .dispatcher
+                    .as_ref()
+                    .expect("Dispatcher should be built before dispatching requests"),
+            )
         };
 
         // Dispatch through the immutable dispatcher
