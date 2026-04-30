@@ -69,6 +69,7 @@ impl HttpSniffer {
     /// ```rust,ignore
     /// let sniffer = HttpSniffer::new().with_body_logging(512);
     /// ```
+    #[allow(unused)]
     pub fn with_body_logging(mut self, max_size: usize) -> Self {
         self.log_body = true;
         self.max_body_size = max_size;
@@ -94,10 +95,24 @@ impl HttpSniffer {
 
         // Parsed URL information
         let uri = req.uri();
+
+        // Extract host and port from Host header (HTTP/1.1 standard)
+        let host_header = req.header("host").unwrap_or("");
+        let (host, port) = if let Some(colon_pos) = host_header.rfind(':') {
+            let h = &host_header[..colon_pos];
+            let p = host_header[colon_pos + 1..].parse::<u16>().ok();
+            (h, p)
+        } else {
+            (host_header, None)
+        };
+
+        // Determine protocol from URI scheme or default to http
+        let protocol = uri.scheme_str().unwrap_or("http");
+
         let parsed_url = serde_json::json!({
-            "protocol": uri.scheme_str().unwrap_or(""),
-            "host": uri.host().unwrap_or(""),
-            "port": uri.port_u16(),
+            "protocol": protocol,
+            "host": host,
+            "port": port,
             "pathname": uri.path(),
             "search": uri.query().map(|q| format!("?{}", q)).unwrap_or_default(),
             "query": req.query_all()
@@ -107,7 +122,6 @@ impl HttpSniffer {
             "{}\n",
             serde_json::to_string_pretty(&parsed_url).unwrap_or_default()
         ));
-
         // Headers with enumeration
         let headers = req.headers();
 
@@ -188,11 +202,11 @@ pub trait HttpSnifferExt<E = ()> {
     /// # Examples
     ///
     /// ```rust,ignore
-    /// let mut app = App::new();
+    /// let app = App::new();
     /// app.with_http_sniffer()
     ///     .get("/", handler);
     /// ```
-    fn with_http_sniffer(&mut self) -> &mut Self;
+    fn with_http_sniffer(&self) -> &Self;
 
     /// Add HTTP sniffer middleware with body logging
     ///
@@ -203,22 +217,25 @@ pub trait HttpSnifferExt<E = ()> {
     /// # Examples
     ///
     /// ```rust,ignore
-    /// let mut app = App::new();
+    /// let app = App::new();
     /// app.with_http_sniffer_body(512)
     ///     .get("/", handler);
     /// ```
-    fn with_http_sniffer_body(&mut self, max_body_size: usize) -> &mut Self;
+    #[allow(unused)]
+    fn with_http_sniffer_body(&self, max_body_size: usize) -> &Self;
 }
 
 impl<E> HttpSnifferExt<E> for App<E>
 where
     E: Send + Sync + 'static,
 {
-    fn with_http_sniffer(&mut self) -> &mut Self {
+    fn with_http_sniffer(&self) -> &Self {
+        // Explicitly post-routing (has access to route params)
         self.r#use(HttpSniffer::new())
     }
 
-    fn with_http_sniffer_body(&mut self, max_body_size: usize) -> &mut Self {
+    fn with_http_sniffer_body(&self, max_body_size: usize) -> &Self {
+        // Explicitly post-routing (has access to route params)
         self.r#use(HttpSniffer::new().with_body_logging(max_body_size))
     }
 }
@@ -341,7 +358,7 @@ mod tests {
 
     #[test]
     fn test_app_extension_trait() {
-        let mut app = App::new();
+        let app = App::new();
         app.with_http_sniffer().get(
             "/test",
             |ctx: Context<()>| async move { Ok(ctx.text("Test")) },
@@ -354,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_app_extension_trait_with_body() {
-        let mut app = App::new();
+        let app = App::new();
         app.with_http_sniffer_body(256)
             .get(
                 "/test",

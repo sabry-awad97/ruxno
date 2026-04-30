@@ -7,7 +7,7 @@ use crate::core::{Handler, Method, Middleware};
 ///
 /// Allows syntax like: `app.route("/users").get(handler).post(handler)`
 pub struct Route<'a, E = ()> {
-    app: &'a mut App<E>,
+    app: &'a App<E>,
     path: String,
 }
 
@@ -16,7 +16,7 @@ where
     E: Send + Sync + 'static,
 {
     /// Create a new route builder
-    pub(crate) fn new(app: &'a mut App<E>, path: impl Into<String>) -> Self {
+    pub(crate) fn new(app: &'a App<E>, path: impl Into<String>) -> Self {
         Self {
             app,
             path: path.into(),

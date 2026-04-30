@@ -35,7 +35,7 @@ use ruxno::prelude::*;
 
 #[tokio::main]
 async fn main() {
-    let mut app = App::new();
+    let app = App::new();
 
     app.get("/", async |c: Context| {
         Ok(c.text("Hello, World!"))

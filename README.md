@@ -25,7 +25,7 @@ use ruxno::prelude::*;
 
 #[tokio::main]
 async fn main() {
-    let mut app = App::new();
+    let app = App::new();
 
     app.get("/", async |ctx: Context| {
         Ok(ctx.text("Hello, World!"))
@@ -50,7 +50,7 @@ use ruxno_middleware::RateLimitMiddleware;
 
 #[tokio::main]
 async fn main() {
-    let mut app = App::new();
+    let app = App::new();
 
     // Add rate limiting (100 requests per second per IP)
     let rate_limiter = RateLimitMiddleware::per_second(100);
@@ -192,23 +192,6 @@ Run with:
 
 ```bash
 cd examples/01_hello_world
-cargo run
-```
-
-### 02_middleware_patterns
-
-Demonstrates middleware patterns:
-
-- Global middleware (applies to all routes)
-- Method-specific middleware (e.g., POST only)
-- Path-specific middleware (e.g., `/api/*`)
-- Middleware execution order
-- REST client test file (`request.http`)
-
-Run with:
-
-```bash
-cd examples/02_middleware_patterns
 cargo run
 ```
 

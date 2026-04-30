@@ -7,7 +7,7 @@ use crate::controllers::user_controller;
 use ruxno::prelude::*;
 
 /// Configure user routes
-pub fn configure_user_routes(app: &mut App<AppEnv>) {
+pub fn configure_user_routes(app: &App<AppEnv>) {
     // User CRUD routes
     app.route("/users")
         .get(user_controller::get_users)

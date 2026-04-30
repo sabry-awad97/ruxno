@@ -13,12 +13,24 @@ pub use route::Route;
 use crate::core::{CoreError, Handler, Method, Middleware};
 use crate::domain::{Request, Response};
 use crate::pipeline::{Dispatcher, MiddlewareOptions};
+use parking_lot::Mutex;
 use std::sync::Arc;
 
 /// Application - Main facade
+///
+/// The App uses a Registry to collect route and middleware registrations,
+/// then builds an immutable Dispatcher on first request or when explicitly built.
+///
+/// Uses interior mutability (Mutex) to allow lazy dispatcher building while
+/// being shareable across threads via Arc.
 pub struct App<E = ()> {
-    dispatcher: Arc<Dispatcher<E>>,
+    inner: Mutex<AppInner<E>>,
     env: Arc<E>,
+}
+
+struct AppInner<E> {
+    registry: Registry<E>,
+    dispatcher: Option<Arc<Dispatcher<E>>>,
 }
 
 impl App<()> {
@@ -36,9 +48,57 @@ where
     pub fn with_env(env: E) -> Self {
         let env = Arc::new(env);
         Self {
-            dispatcher: Arc::new(Dispatcher::new(Arc::clone(&env))),
+            inner: Mutex::new(AppInner {
+                registry: Registry::new(),
+                dispatcher: None,
+            }),
             env,
         }
+    }
+
+    /// Build the dispatcher from the registry
+    ///
+    /// This consumes the registry and creates an immutable Dispatcher.
+    /// Called automatically on first request if not called explicitly.
+    fn build_dispatcher(&self) {
+        let mut inner = self.inner.lock();
+
+        if inner.dispatcher.is_some() {
+            return; // Already built
+        }
+
+        let mut dispatcher = Dispatcher::new(Arc::clone(&self.env));
+
+        // Take the registry contents
+        let registry = std::mem::take(&mut inner.registry);
+        let (routes, middleware) = registry.into_parts();
+
+        // Register all middleware first (order matters for PostRouting)
+        for entry in middleware {
+            dispatcher.register_middleware_arc(
+                entry.phase(),
+                entry.middleware(),
+                entry.options().cloned(),
+            );
+        }
+
+        // Register all routes (this pre-computes middleware chains)
+        for entry in routes {
+            let method = entry.method().clone();
+            let path = entry.path().to_string();
+            let handler = entry.handler();
+
+            if let Err(e) = dispatcher.register_route_boxed(method.clone(), &path, handler) {
+                panic!(
+                    "Failed to register route {} {}: {}",
+                    method.as_str(),
+                    path,
+                    e
+                );
+            }
+        }
+
+        inner.dispatcher = Some(Arc::new(dispatcher));
     }
 
     // Route registration
@@ -55,51 +115,42 @@ where
     ///     .get(async |c: Context| c.text("Get users"))
     ///     .post(async |c: Context| c.text("Create user"));
     /// ```
-    pub fn route(&mut self, path: impl Into<String>) -> Route<'_, E> {
+    pub fn route(&self, path: impl Into<String>) -> Route<'_, E> {
         Route::new(self, path)
     }
 
     /// Register route (internal helper for Route builder)
-    pub(crate) fn register_route(&mut self, method: Method, path: &str, handler: impl Handler<E>) {
-        if let Err(e) = Arc::get_mut(&mut self.dispatcher)
-            .expect("Dispatcher should be uniquely owned during route registration")
-            .register_route(method.clone(), path, handler)
-        {
-            panic!(
-                "Failed to register route {} {}: {}",
-                method.as_str(),
-                path,
-                e
-            );
-        }
+    pub(crate) fn register_route(&self, method: Method, path: &str, handler: impl Handler<E>) {
+        let mut inner = self.inner.lock();
+        inner.registry.register_route(method, path, handler);
     }
 
     /// Register GET route
-    pub fn get(&mut self, path: &str, handler: impl Handler<E>) -> &mut Self {
+    pub fn get(&self, path: &str, handler: impl Handler<E>) -> &Self {
         self.register_route(Method::GET, path, handler);
         self
     }
 
     /// Register POST route
-    pub fn post(&mut self, path: &str, handler: impl Handler<E>) -> &mut Self {
+    pub fn post(&self, path: &str, handler: impl Handler<E>) -> &Self {
         self.register_route(Method::POST, path, handler);
         self
     }
 
     /// Register PUT route
-    pub fn put(&mut self, path: &str, handler: impl Handler<E>) -> &mut Self {
+    pub fn put(&self, path: &str, handler: impl Handler<E>) -> &Self {
         self.register_route(Method::PUT, path, handler);
         self
     }
 
     /// Register DELETE route
-    pub fn delete(&mut self, path: &str, handler: impl Handler<E>) -> &mut Self {
+    pub fn delete(&self, path: &str, handler: impl Handler<E>) -> &Self {
         self.register_route(Method::DELETE, path, handler);
         self
     }
 
     /// Register PATCH route
-    pub fn patch(&mut self, path: &str, handler: impl Handler<E>) -> &mut Self {
+    pub fn patch(&self, path: &str, handler: impl Handler<E>) -> &Self {
         self.register_route(Method::PATCH, path, handler);
         self
     }
@@ -133,10 +184,11 @@ where
     ///     next.run(ctx).await
     /// });
     /// ```
-    pub fn use_before_routing(&mut self, middleware: impl Middleware<E>) -> &mut Self {
+    pub fn use_before_routing(&self, middleware: impl Middleware<E>) -> &Self {
         use crate::pipeline::MiddlewarePhase;
-        Arc::get_mut(&mut self.dispatcher)
-            .expect("Dispatcher should be uniquely owned during middleware registration")
+        let mut inner = self.inner.lock();
+        inner
+            .registry
             .register_middleware(MiddlewarePhase::PreRouting, middleware, None);
         self
     }
@@ -158,15 +210,12 @@ where
     ///     Ok(Response::json(&serde_json::json!({"status": "ok"})))
     /// });
     /// ```
-    pub fn use_before_routing_on(
-        &mut self,
-        pattern: &str,
-        middleware: impl Middleware<E>,
-    ) -> &mut Self {
+    pub fn use_before_routing_on(&self, pattern: &str, middleware: impl Middleware<E>) -> &Self {
         use crate::pipeline::MiddlewarePhase;
         let opts = MiddlewareOptions::new().on(pattern);
-        Arc::get_mut(&mut self.dispatcher)
-            .expect("Dispatcher should be uniquely owned during middleware registration")
+        let mut inner = self.inner.lock();
+        inner
+            .registry
             .register_middleware(MiddlewarePhase::PreRouting, middleware, Some(opts));
         self
     }
@@ -207,10 +256,11 @@ where
     ///     next.run(ctx).await
     /// });
     /// ```
-    pub fn r#use(&mut self, middleware: impl Middleware<E>) -> &mut Self {
+    pub fn r#use(&self, middleware: impl Middleware<E>) -> &Self {
         use crate::pipeline::MiddlewarePhase;
-        Arc::get_mut(&mut self.dispatcher)
-            .expect("Dispatcher should be uniquely owned during middleware registration")
+        let mut inner = self.inner.lock();
+        inner
+            .registry
             .register_middleware(MiddlewarePhase::PostRouting, middleware, None);
         self
     }
@@ -233,11 +283,12 @@ where
     ///     next.run(ctx).await
     /// });
     /// ```
-    pub fn use_on(&mut self, pattern: &str, middleware: impl Middleware<E>) -> &mut Self {
+    pub fn use_on(&self, pattern: &str, middleware: impl Middleware<E>) -> &Self {
         use crate::pipeline::MiddlewarePhase;
         let opts = MiddlewareOptions::new().on(pattern);
-        Arc::get_mut(&mut self.dispatcher)
-            .expect("Dispatcher should be uniquely owned during middleware registration")
+        let mut inner = self.inner.lock();
+        inner
+            .registry
             .register_middleware(MiddlewarePhase::PostRouting, middleware, Some(opts));
         self
     }
@@ -268,16 +319,12 @@ where
     ///     Ok(ctx.text("Get users"))  // No validation middleware (GET, not POST)
     /// });
     /// ```
-    pub fn on(
-        &mut self,
-        method: Method,
-        pattern: &str,
-        middleware: impl Middleware<E>,
-    ) -> &mut Self {
+    pub fn on(&self, method: Method, pattern: &str, middleware: impl Middleware<E>) -> &Self {
         use crate::pipeline::MiddlewarePhase;
         let opts = MiddlewareOptions::new().for_method(method).on(pattern);
-        Arc::get_mut(&mut self.dispatcher)
-            .expect("Dispatcher should be uniquely owned during middleware registration")
+        let mut inner = self.inner.lock();
+        inner
+            .registry
             .register_middleware(MiddlewarePhase::PostRouting, middleware, Some(opts));
         self
     }
@@ -318,7 +365,17 @@ where
 
     /// Dispatch request (internal)
     pub(crate) async fn dispatch(&self, req: Request) -> Result<Response, CoreError> {
-        Arc::clone(&self.dispatcher).dispatch(req).await
+        // Build dispatcher if not already built
+        self.build_dispatcher();
+
+        // Clone the dispatcher Arc without holding the lock across await
+        let dispatcher = {
+            let inner = self.inner.lock();
+            Arc::clone(inner.dispatcher.as_ref().unwrap())
+        };
+
+        // Dispatch through the immutable dispatcher
+        dispatcher.dispatch(req).await
     }
 }
 
@@ -381,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_app_use() {
-        let mut app = App::new();
+        let app = App::new();
         // Should not panic - using PostRouting phase
         app.r#use(|_ctx: crate::domain::Context, next: crate::core::Next| async move {
             next.run(_ctx).await
@@ -390,7 +447,7 @@ mod tests {
 
     #[test]
     fn test_app_use_before_routing() {
-        let mut app = App::new();
+        let app = App::new();
         // Should not panic - using PreRouting phase
         app.use_before_routing(|_ctx: crate::domain::Context, next: crate::core::Next| async move {
             next.run(_ctx).await
@@ -399,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_app_on() {
-        let mut app = App::new();
+        let app = App::new();
         // Should not panic - using PostRouting phase
         app.on(
             Method::POST,
@@ -433,7 +490,7 @@ mod tests {
             }
         }
 
-        let mut app = App::new();
+        let app = App::new();
 
         // Register pre-routing middleware using use_before_routing()
         app.use_before_routing(TestMiddleware {
@@ -497,7 +554,7 @@ mod tests {
             }
         }
 
-        let mut app = App::new();
+        let app = App::new();
 
         // Register method + pattern-specific middleware using on()
         app.on(

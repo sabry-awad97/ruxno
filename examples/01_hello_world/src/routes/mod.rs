@@ -17,7 +17,7 @@ pub use health_routes::*;
 pub use user_routes::*;
 
 /// Configure all application routes
-pub fn configure_routes(app: &mut App<AppEnv>) {
+pub fn configure_routes(app: &App<AppEnv>) {
     // Home route
     app.get("/", home_controller::index);
 

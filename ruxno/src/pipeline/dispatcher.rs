@@ -52,7 +52,7 @@ use std::sync::Arc;
 /// // Method + path-specific middleware
 /// let opts = MiddlewareOptions::new().for_method(Method::POST).on("/api/*");
 /// ```
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct MiddlewareOptions {
     /// Optional method filter (None = all methods)
     method: Option<Method>,
@@ -237,10 +237,20 @@ where
         path: &str,
         handler: impl Handler<E>,
     ) -> Result<(), CoreError> {
-        use crate::pipeline::MiddlewarePhase;
+        self.register_route_boxed(method, path, BoxedHandler::new(handler))
+    }
 
-        // Box the handler
-        let boxed_handler = BoxedHandler::new(handler);
+    /// Register a route with a pre-boxed handler (internal use)
+    ///
+    /// This is used internally when building from a Registry that already
+    /// has BoxedHandler instances.
+    pub(crate) fn register_route_boxed(
+        &mut self,
+        method: Method,
+        path: &str,
+        boxed_handler: BoxedHandler<E>,
+    ) -> Result<(), CoreError> {
+        use crate::pipeline::MiddlewarePhase;
 
         // Build middleware chain (pre-computed at registration time)
         let mut chain = MiddlewareChain::new(boxed_handler);
@@ -302,6 +312,19 @@ where
         middleware: impl Middleware<E>,
         options: Option<MiddlewareOptions>,
     ) {
+        self.register_middleware_arc(phase, Arc::new(middleware), options);
+    }
+
+    /// Register middleware from an Arc (internal use)
+    ///
+    /// This is used internally when building from a Registry that already
+    /// has Arc-wrapped middleware.
+    pub(crate) fn register_middleware_arc(
+        &mut self,
+        phase: crate::pipeline::MiddlewarePhase,
+        middleware: Arc<dyn Middleware<E>>,
+        options: Option<MiddlewareOptions>,
+    ) {
         let (method, pattern) = match options {
             Some(opts) => (
                 opts.method,
@@ -314,7 +337,7 @@ where
             phase,
             method,
             pattern,
-            middleware: Arc::new(middleware),
+            middleware,
         });
     }
 

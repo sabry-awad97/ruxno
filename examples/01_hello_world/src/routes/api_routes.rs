@@ -8,7 +8,7 @@ use crate::middleware::api_middleware;
 use ruxno::prelude::*;
 
 /// Configure API routes
-pub fn configure_api_routes(app: &mut App<AppEnv>) {
+pub fn configure_api_routes(app: &App<AppEnv>) {
     // API middleware - applies to all /api/* routes
     app.on(Method::GET, "/api/*", api_middleware);
 

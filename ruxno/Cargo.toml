@@ -51,6 +51,7 @@ urlencoding = { workspace = true }
 serde_urlencoded = "0.7.1"
 multer = { workspace = true }
 rand = { workspace = true }
+parking_lot = "0.12.5"
 
 [dev-dependencies]
 tokio-test = "0.4.5"

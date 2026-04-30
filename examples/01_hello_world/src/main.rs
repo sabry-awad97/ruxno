@@ -93,13 +93,13 @@ use ruxno_middleware::{cors, pretty_json};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create application environment with in-memory database
-    let mut app = App::with_env(AppEnv::new());
+    let app = App::with_env(AppEnv::new());
 
     // Configure global middleware
-    configure_middleware(&mut app);
+    configure_middleware(&app);
 
     // Configure all routes (including health check)
-    configure_routes(&mut app);
+    configure_routes(&app);
 
     // Print server info and start
     util::print_server_info();
@@ -109,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Configure middleware with explicit phases
-fn configure_middleware(app: &mut App<AppEnv>) {
+fn configure_middleware(app: &App<AppEnv>) {
     // ========================================================================
     // Pre-Routing Middleware (runs BEFORE routing)
     // ========================================================================

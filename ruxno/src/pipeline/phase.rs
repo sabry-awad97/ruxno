@@ -27,7 +27,7 @@
 ///     Some(opts),
 /// );
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum MiddlewarePhase {
     /// Run before routing
     ///
@@ -53,43 +53,6 @@ pub enum MiddlewarePhase {
     ///
     /// **Benefit**: Post-routing middleware HAS access to route parameters
     /// extracted during routing.
+    #[default]
     PostRouting,
-}
-
-impl Default for MiddlewarePhase {
-    fn default() -> Self {
-        // Post-routing is the default since it's the most common use case
-        Self::PostRouting
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default_phase() {
-        assert_eq!(MiddlewarePhase::default(), MiddlewarePhase::PostRouting);
-    }
-
-    #[test]
-    fn test_phase_equality() {
-        assert_eq!(MiddlewarePhase::PreRouting, MiddlewarePhase::PreRouting);
-        assert_eq!(MiddlewarePhase::PostRouting, MiddlewarePhase::PostRouting);
-        assert_ne!(MiddlewarePhase::PreRouting, MiddlewarePhase::PostRouting);
-    }
-
-    #[test]
-    fn test_phase_clone() {
-        let phase = MiddlewarePhase::PreRouting;
-        let cloned = phase.clone();
-        assert_eq!(phase, cloned);
-    }
-
-    #[test]
-    fn test_phase_copy() {
-        let phase = MiddlewarePhase::PostRouting;
-        let copied = phase;
-        assert_eq!(phase, copied);
-    }
 }

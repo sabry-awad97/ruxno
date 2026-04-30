@@ -7,7 +7,7 @@ use crate::controllers::health_controller;
 use ruxno::prelude::*;
 
 /// Configure health routes
-pub fn configure_health_routes(app: &mut App<AppEnv>) {
+pub fn configure_health_routes(app: &App<AppEnv>) {
     // Health check endpoint
     app.get("/health", health_controller::health_check);
 }
